@@ -1,6 +1,6 @@
 import { navigateTo } from '../router.js';
 import { nanoid } from 'nanoid';
-import { getUser, mountUserButton, getClerk } from '../auth.js';
+import { getUser, mountUserButton, getClerk, signOut } from '../auth.js';
 import { listBoards, createBoard } from '../api.js';
 
 export const dashboardView = {
@@ -11,7 +11,10 @@ export const dashboardView = {
       <div class="dashboard">
         <header class="dashboard-header">
           <h1 class="dashboard-logo">CollabBoard</h1>
-          <div id="clerk-user-button"></div>
+          <div class="dashboard-header-right">
+            <div id="clerk-user-button"></div>
+            <button class="btn btn-logout" id="logout-btn">Log out</button>
+          </div>
         </header>
         <div class="dashboard-content">
           <div class="dashboard-actions">
@@ -30,6 +33,12 @@ export const dashboardView = {
     if (getClerk()) {
       mountUserButton(userBtnEl);
     }
+
+    // Logout handler
+    container.querySelector('#logout-btn').addEventListener('click', async () => {
+      await signOut();
+      navigateTo('#/');
+    });
 
     // Create board handler
     container.querySelector('#create-board').addEventListener('click', async () => {
