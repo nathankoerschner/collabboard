@@ -3,6 +3,7 @@ import { CursorManager } from '../board/CursorManager.js';
 import { PresencePanel } from '../board/PresencePanel.js';
 import { Canvas } from '../canvas/Canvas.js';
 import { getUser, getToken } from '../auth.js';
+import { navigateTo } from '../router.js';
 
 let boardManager = null;
 let canvas = null;
@@ -13,6 +14,11 @@ export const boardView = {
   async render(container, { boardId }) {
     container.innerHTML = `
       <div class="board-view" id="board-view">
+        <button class="back-to-dashboard" id="back-to-dashboard" title="Back to Dashboard">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+        </button>
         <div class="board-toolbar" id="toolbar">
           <div class="toolbar-group">
             <button class="toolbar-btn active" data-tool="select" title="Select (V)">
@@ -73,6 +79,11 @@ export const boardView = {
     // Presence panel
     const boardViewEl = document.getElementById('board-view');
     presencePanel = new PresencePanel(boardViewEl, boardManager.getAwareness());
+
+    // Back to dashboard
+    document.getElementById('back-to-dashboard').addEventListener('click', () => {
+      navigateTo('/dashboard');
+    });
 
     // Toolbar event handling
     const toolbar = document.getElementById('toolbar');
