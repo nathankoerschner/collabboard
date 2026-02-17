@@ -1,0 +1,7 @@
+node_modules
+.git
+terraform
+*.md
+.dockerignore
+Dockerfile
+deploy.sh

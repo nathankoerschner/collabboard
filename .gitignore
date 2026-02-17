@@ -3,3 +3,10 @@ dist/
 .env
 *.log
 .DS_Store
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate*
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+terraform/tfplan
