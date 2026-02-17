@@ -39,6 +39,7 @@ locals {
     "vpcaccess.googleapis.com",
     "secretmanager.googleapis.com",
     "servicenetworking.googleapis.com",
+    "cloudbuild.googleapis.com",
   ]
 }
 
@@ -220,7 +221,7 @@ resource "google_project_iam_member" "cloud_run_sql" {
 # Cloud Run service
 # ---------------------------------------------------------------------------
 locals {
-  image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.collabboard.repository_id}/app:${var.image_tag}"
+  image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.collabboard.repository_id}/app:latest"
   database_url = "postgresql://${google_sql_user.collabboard.name}:${random_password.db_password.result}@${google_sql_database_instance.postgres.private_ip_address}:5432/${google_sql_database.collabboard.name}"
 }
 
@@ -306,4 +307,73 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
   location = var.region
   role     = "roles/run.invoker"
   member   = "allUsers"
+}
+
+# ---------------------------------------------------------------------------
+# Cloud Build — CI/CD pipeline
+# ---------------------------------------------------------------------------
+data "google_project" "current" {}
+
+resource "google_service_account" "cloudbuild" {
+  account_id   = "collabboard-cloudbuild"
+  display_name = "Collabboard Cloud Build"
+}
+
+locals {
+  cloud_build_sa = "serviceAccount:${google_service_account.cloudbuild.email}"
+}
+
+# Cloud Build trigger — runs on push to master
+#
+# One-time setup: connect GitHub in Cloud Build > Triggers > Connect Repository
+#
+resource "google_cloudbuild_trigger" "deploy" {
+  name = "collabboard-deploy"
+
+  github {
+    owner = "nathankoerschner"
+    name  = "collabboard"
+
+    push {
+      branch = "^master$"
+    }
+  }
+
+  filename        = "cloudbuild.yaml"
+  service_account = google_service_account.cloudbuild.id
+
+  substitutions = {
+    _REGION = var.region
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+# Cloud Build SA — push images to Artifact Registry
+resource "google_artifact_registry_repository_iam_member" "cloudbuild_writer" {
+  location   = google_artifact_registry_repository.collabboard.location
+  repository = google_artifact_registry_repository.collabboard.repository_id
+  role       = "roles/artifactregistry.writer"
+  member     = local.cloud_build_sa
+}
+
+# Cloud Build SA — deploy to Cloud Run
+resource "google_project_iam_member" "cloudbuild_run_developer" {
+  project = var.project_id
+  role    = "roles/run.developer"
+  member  = local.cloud_build_sa
+}
+
+# Cloud Build SA — act as the Cloud Run service account
+resource "google_service_account_iam_member" "cloudbuild_act_as" {
+  service_account_id = google_service_account.cloud_run.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = local.cloud_build_sa
+}
+
+# Cloud Build SA — write build logs
+resource "google_project_iam_member" "cloudbuild_logs_writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = local.cloud_build_sa
 }

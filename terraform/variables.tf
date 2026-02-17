@@ -21,8 +21,4 @@ variable "clerk_secret_key" {
   sensitive   = true
 }
 
-variable "image_tag" {
-  description = "Docker image tag to deploy"
-  type        = string
-  default     = "latest"
-}
+
