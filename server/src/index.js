@@ -83,7 +83,13 @@ const server = http.createServer(async (req, res) => {
 
 // WebSocket upgrade
 server.on('upgrade', (req, socket, head) => {
-  handleUpgrade(req, socket, head);
+  handleUpgrade(req, socket, head).catch((err) => {
+    console.error('Unhandled WebSocket upgrade error:', err.message);
+    if (!socket.destroyed) {
+      socket.write('HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+    }
+  });
 });
 
 // Run migrations on startup
