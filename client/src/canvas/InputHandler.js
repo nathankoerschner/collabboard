@@ -18,8 +18,10 @@ export class InputHandler {
     this.dragObjStartH = 0;
     this.resizeHandle = null;
     this.selectedId = null;
+    this.selectedIds = [];
     this.spaceHeld = false;
     this.marqueeRect = null; // { x, y, width, height } in world coords
+    this.marqueeHoveredIds = []; // IDs of objects currently intersecting the marquee
 
     this._onMouseDown = this._onMouseDown.bind(this);
     this._onMouseMove = this._onMouseMove.bind(this);
@@ -47,6 +49,10 @@ export class InputHandler {
 
   getMarqueeRect() {
     return this.marqueeRect;
+  }
+
+  getMarqueeHoveredIds() {
+    return this.marqueeHoveredIds;
   }
 
   _onMouseDown(e) {
@@ -94,6 +100,7 @@ export class InputHandler {
     const hit = hitTestObjects(wx, wy, objects);
     if (hit) {
       this.selectedId = hit.id;
+      this.selectedIds = [hit.id];
       this.callbacks.onSelect?.(hit.id);
       this.dragging = true;
       this.dragType = 'move';
@@ -110,6 +117,7 @@ export class InputHandler {
     } else {
       // Marquee select on empty space
       this.selectedId = null;
+      this.selectedIds = [];
       this.callbacks.onSelect?.(null);
       this.dragging = true;
       this.dragType = 'marquee';
@@ -148,6 +156,19 @@ export class InputHandler {
       const mw = Math.abs(wx - this.dragStartX);
       const mh = Math.abs(wy - this.dragStartY);
       this.marqueeRect = { x: mx, y: my, width: mw, height: mh };
+
+      // Live preview: compute which objects the marquee currently intersects
+      if (mw > 2 || mh > 2) {
+        const objects = this.getObjects();
+        this.marqueeHoveredIds = objects
+          .filter(obj =>
+            obj.x + obj.width >= mx && obj.x <= mx + mw &&
+            obj.y + obj.height >= my && obj.y <= my + mh
+          )
+          .map(o => o.id);
+      } else {
+        this.marqueeHoveredIds = [];
+      }
     }
   }
 
@@ -163,10 +184,12 @@ export class InputHandler {
         if (selected.length > 0) {
           const ids = selected.map(o => o.id);
           this.selectedId = ids.length === 1 ? ids[0] : null;
+          this.selectedIds = ids;
           this.callbacks.onMarqueeSelect?.(ids);
         }
       }
       this.marqueeRect = null;
+      this.marqueeHoveredIds = [];
     }
     this.dragging = false;
     this.dragType = null;
@@ -200,9 +223,12 @@ export class InputHandler {
       this.canvasEl.style.cursor = 'grab';
     }
 
-    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId) {
-      this.callbacks.onDelete?.(this.selectedId);
+    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedIds.length > 0) {
+      for (const id of this.selectedIds) {
+        this.callbacks.onDelete?.(id);
+      }
       this.selectedId = null;
+      this.selectedIds = [];
     }
   }
 

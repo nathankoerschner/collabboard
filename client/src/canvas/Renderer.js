@@ -174,6 +174,18 @@ export class Renderer {
     ctx.closePath();
   }
 
+  drawMarqueeHover(ctx, obj, camera) {
+    ctx.strokeStyle = '#4361ee';
+    ctx.lineWidth = 1.5 / camera.scale;
+    ctx.setLineDash([4 / camera.scale, 4 / camera.scale]);
+    ctx.strokeRect(obj.x, obj.y, obj.width, obj.height);
+    ctx.setLineDash([]);
+
+    // Subtle fill overlay to indicate pending selection
+    ctx.fillStyle = 'rgba(67, 97, 238, 0.06)';
+    ctx.fillRect(obj.x, obj.y, obj.width, obj.height);
+  }
+
   drawMarquee(ctx, rect, camera) {
     const { x, y, width, height } = rect;
     ctx.fillStyle = 'rgba(67, 97, 238, 0.08)';

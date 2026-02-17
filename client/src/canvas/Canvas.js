@@ -38,6 +38,7 @@ export class Canvas {
         }
         this.objectStore.deleteObject(id);
         this.selectedId = null;
+        this.selectedIds = [];
       },
       onCursorMove: (wx, wy) => this.cursorManager?.sendCursor(wx, wy),
     });
@@ -108,9 +109,16 @@ export class Canvas {
       }
     }
 
-    // Marquee rectangle
+    // Marquee rectangle and hover previews
     const marqueeRect = this.inputHandler.getMarqueeRect();
     if (marqueeRect) {
+      const hoveredIds = this.inputHandler.getMarqueeHoveredIds();
+      for (const id of hoveredIds) {
+        const obj = objects.find(o => o.id === id);
+        if (obj) {
+          this.renderer.drawMarqueeHover(ctx, obj, this.camera);
+        }
+      }
       this.renderer.drawMarquee(ctx, marqueeRect, this.camera);
     }
 
