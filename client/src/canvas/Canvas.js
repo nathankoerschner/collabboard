@@ -12,6 +12,7 @@ export class Canvas {
     this.objectStore = objectStore;
     this.cursorManager = cursorManager;
     this.selectedId = null;
+    this.selectedIds = []; // for marquee multi-select
     this.animFrameId = null;
 
     this.textEditor = new TextEditor(canvasEl, this.camera, {
@@ -19,7 +20,8 @@ export class Canvas {
     });
 
     this.inputHandler = new InputHandler(canvasEl, this.camera, () => this.objectStore.getAll(), {
-      onSelect: (id) => { this.selectedId = id; },
+      onSelect: (id) => { this.selectedId = id; this.selectedIds = id ? [id] : []; },
+      onMarqueeSelect: (ids) => { this.selectedIds = ids; this.selectedId = ids.length === 1 ? ids[0] : null; },
       onMove: (id, x, y) => this.objectStore.moveObject(id, x, y),
       onResize: (id, x, y, w, h) => this.objectStore.resizeObject(id, x, y, w, h),
       onCreate: (type, x, y, w, h) => {
@@ -89,20 +91,27 @@ export class Canvas {
     this.renderer.drawBackground(ctx, this.camera, w, h);
 
     const objects = this.objectStore.getAll();
+    const editingId = this.textEditor.getEditingId();
     for (const obj of objects) {
-      this.renderer.drawObject(ctx, obj);
+      this.renderer.drawObject(ctx, obj, { skipText: obj.id === editingId });
     }
 
     // Selection handles
-    if (this.selectedId) {
-      const selObj = objects.find(o => o.id === this.selectedId);
+    const idsToHighlight = this.selectedIds.length > 0 ? this.selectedIds : (this.selectedId ? [this.selectedId] : []);
+    for (const id of idsToHighlight) {
+      const selObj = objects.find(o => o.id === id);
       if (selObj) {
         this.renderer.drawSelectionHandles(ctx, selObj, this.camera);
-        // Update text editor position if editing this object
         if (this.textEditor.getEditingId() === selObj.id) {
           this.textEditor.updatePosition(selObj);
         }
       }
+    }
+
+    // Marquee rectangle
+    const marqueeRect = this.inputHandler.getMarqueeRect();
+    if (marqueeRect) {
+      this.renderer.drawMarquee(ctx, marqueeRect, this.camera);
     }
 
     // Remote cursors

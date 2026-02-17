@@ -9,7 +9,7 @@ export class InputHandler {
 
     this.tool = 'select'; // 'select' | 'sticky' | 'rectangle'
     this.dragging = false;
-    this.dragType = null; // 'pan' | 'move' | 'resize'
+    this.dragType = null; // 'pan' | 'move' | 'resize' | 'marquee'
     this.dragStartX = 0;
     this.dragStartY = 0;
     this.dragObjStartX = 0;
@@ -18,18 +18,22 @@ export class InputHandler {
     this.dragObjStartH = 0;
     this.resizeHandle = null;
     this.selectedId = null;
+    this.spaceHeld = false;
+    this.marqueeRect = null; // { x, y, width, height } in world coords
 
     this._onMouseDown = this._onMouseDown.bind(this);
     this._onMouseMove = this._onMouseMove.bind(this);
     this._onMouseUp = this._onMouseUp.bind(this);
     this._onWheel = this._onWheel.bind(this);
     this._onKeyDown = this._onKeyDown.bind(this);
+    this._onKeyUp = this._onKeyUp.bind(this);
 
     canvas.addEventListener('mousedown', this._onMouseDown);
     canvas.addEventListener('mousemove', this._onMouseMove);
     canvas.addEventListener('mouseup', this._onMouseUp);
     canvas.addEventListener('wheel', this._onWheel, { passive: false });
     window.addEventListener('keydown', this._onKeyDown);
+    window.addEventListener('keyup', this._onKeyUp);
   }
 
   setTool(tool) {
@@ -39,6 +43,10 @@ export class InputHandler {
 
   getSelectedId() {
     return this.selectedId;
+  }
+
+  getMarqueeRect() {
+    return this.marqueeRect;
   }
 
   _onMouseDown(e) {
@@ -93,14 +101,21 @@ export class InputHandler {
       this.dragStartY = wy;
       this.dragObjStartX = hit.x;
       this.dragObjStartY = hit.y;
-    } else {
-      // Pan or deselect
-      this.selectedId = null;
-      this.callbacks.onSelect?.(null);
+    } else if (this.spaceHeld || e.button === 1) {
+      // Space+drag or middle-click → pan
       this.dragging = true;
       this.dragType = 'pan';
       this.dragStartX = sx;
       this.dragStartY = sy;
+    } else {
+      // Marquee select on empty space
+      this.selectedId = null;
+      this.callbacks.onSelect?.(null);
+      this.dragging = true;
+      this.dragType = 'marquee';
+      this.dragStartX = wx;
+      this.dragStartY = wy;
+      this.marqueeRect = { x: wx, y: wy, width: 0, height: 0 };
     }
   }
 
@@ -127,10 +142,33 @@ export class InputHandler {
       this.callbacks.onMove?.(this.selectedId, this.dragObjStartX + dx, this.dragObjStartY + dy);
     } else if (this.dragType === 'resize' && this.selectedId) {
       this._handleResize(wx, wy);
+    } else if (this.dragType === 'marquee') {
+      const mx = Math.min(this.dragStartX, wx);
+      const my = Math.min(this.dragStartY, wy);
+      const mw = Math.abs(wx - this.dragStartX);
+      const mh = Math.abs(wy - this.dragStartY);
+      this.marqueeRect = { x: mx, y: my, width: mw, height: mh };
     }
   }
 
   _onMouseUp() {
+    if (this.dragType === 'marquee' && this.marqueeRect) {
+      const { x, y, width, height } = this.marqueeRect;
+      if (width > 2 || height > 2) {
+        const objects = this.getObjects();
+        const selected = objects.filter(obj =>
+          obj.x >= x && obj.y >= y &&
+          obj.x + obj.width <= x + width &&
+          obj.y + obj.height <= y + height
+        );
+        if (selected.length > 0) {
+          const ids = selected.map(o => o.id);
+          this.selectedId = ids.length === 1 ? ids[0] : null;
+          this.callbacks.onMarqueeSelect?.(ids);
+        }
+      }
+      this.marqueeRect = null;
+    }
     this.dragging = false;
     this.dragType = null;
     this.resizeHandle = null;
@@ -141,16 +179,37 @@ export class InputHandler {
     const rect = this.canvasEl.getBoundingClientRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
-    const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    this.camera.zoom(factor, cx, cy);
+
+    if (e.ctrlKey) {
+      // Pinch-to-zoom on trackpad (browser sets ctrlKey for pinch gestures)
+      // or Ctrl+scroll on mouse wheel
+      const factor = e.deltaY > 0 ? 0.95 : 1.05;
+      this.camera.zoom(factor, cx, cy);
+    } else {
+      // Two-finger scroll on trackpad → pan
+      // Mouse scroll wheel without Ctrl → also pan
+      this.camera.pan(-e.deltaX, -e.deltaY);
+    }
   }
 
   _onKeyDown(e) {
+    if (e.key === ' ') {
+      e.preventDefault();
+      this.spaceHeld = true;
+      this.canvasEl.style.cursor = 'grab';
+    }
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId) {
       this.callbacks.onDelete?.(this.selectedId);
       this.selectedId = null;
+    }
+  }
+
+  _onKeyUp(e) {
+    if (e.key === ' ') {
+      this.spaceHeld = false;
+      this.canvasEl.style.cursor = this.tool === 'select' ? 'default' : 'crosshair';
     }
   }
 
@@ -180,5 +239,6 @@ export class InputHandler {
     this.canvasEl.removeEventListener('mouseup', this._onMouseUp);
     this.canvasEl.removeEventListener('wheel', this._onWheel);
     window.removeEventListener('keydown', this._onKeyDown);
+    window.removeEventListener('keyup', this._onKeyUp);
   }
 }

@@ -34,15 +34,15 @@ export class Renderer {
     }
   }
 
-  drawObject(ctx, obj) {
+  drawObject(ctx, obj, { skipText = false } = {}) {
     if (obj.type === 'sticky') {
-      this.drawStickyNote(ctx, obj);
+      this.drawStickyNote(ctx, obj, skipText);
     } else if (obj.type === 'rectangle') {
       this.drawRectangle(ctx, obj);
     }
   }
 
-  drawStickyNote(ctx, obj) {
+  drawStickyNote(ctx, obj, skipText = false) {
     const { x, y, width, height, color = 'yellow', text = '' } = obj;
     const bgColor = STICKY_COLORS[color] || STICKY_COLORS.yellow;
 
@@ -65,8 +65,8 @@ export class Renderer {
     this.roundRect(ctx, x, y, width, height, 4);
     ctx.stroke();
 
-    // Text
-    if (text) {
+    // Text (skip if being edited to avoid doubling)
+    if (text && !skipText) {
       ctx.fillStyle = '#1a1a2e';
       ctx.font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
       ctx.textAlign = 'left';
@@ -167,6 +167,17 @@ export class Renderer {
     ctx.lineTo(x, y + r);
     ctx.quadraticCurveTo(x, y, x + r, y);
     ctx.closePath();
+  }
+
+  drawMarquee(ctx, rect, camera) {
+    const { x, y, width, height } = rect;
+    ctx.fillStyle = 'rgba(67, 97, 238, 0.08)';
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeStyle = '#4361ee';
+    ctx.lineWidth = 1 / camera.scale;
+    ctx.setLineDash([4 / camera.scale, 4 / camera.scale]);
+    ctx.strokeRect(x, y, width, height);
+    ctx.setLineDash([]);
   }
 
   wrapText(ctx, text, x, y, maxWidth, lineHeight) {
