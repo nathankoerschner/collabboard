@@ -157,9 +157,8 @@ export class InputHandler {
       if (width > 2 || height > 2) {
         const objects = this.getObjects();
         const selected = objects.filter(obj =>
-          obj.x >= x && obj.y >= y &&
-          obj.x + obj.width <= x + width &&
-          obj.y + obj.height <= y + height
+          obj.x + obj.width >= x && obj.x <= x + width &&
+          obj.y + obj.height >= y && obj.y <= y + height
         );
         if (selected.length > 0) {
           const ids = selected.map(o => o.id);

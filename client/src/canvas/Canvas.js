@@ -20,7 +20,7 @@ export class Canvas {
     });
 
     this.inputHandler = new InputHandler(canvasEl, this.camera, () => this.objectStore.getAll(), {
-      onSelect: (id) => { this.selectedId = id; this.selectedIds = id ? [id] : []; },
+      onSelect: (id) => { this.selectedId = id; this.selectedIds = id ? [id] : []; if (id) this.objectStore.bringToFront(id); },
       onMarqueeSelect: (ids) => { this.selectedIds = ids; this.selectedId = ids.length === 1 ? ids[0] : null; },
       onMove: (id, x, y) => this.objectStore.moveObject(id, x, y),
       onResize: (id, x, y, w, h) => this.objectStore.resizeObject(id, x, y, w, h),
