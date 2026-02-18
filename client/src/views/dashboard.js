@@ -75,10 +75,10 @@ export const dashboardView = {
         });
       }
     } catch {
-      // No DB configured - show simple UI
+      // Failed to load boards (auth/network/DB). Keep CTA available.
       boardList.innerHTML = `
         <div class="empty-state">
-          <p>Create a board to get started (no database configured for persistence).</p>
+          <p>Could not load boards right now. You can still create a new board.</p>
         </div>
       `;
     }
