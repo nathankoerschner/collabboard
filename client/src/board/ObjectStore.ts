@@ -557,23 +557,16 @@ export class ObjectStore {
     const obj = this.getObject(id);
     if (!obj || obj.type === 'connector') return;
 
-    if (obj.type === 'frame') {
-      const all = this.getAll();
-      for (const child of all) {
-        if (child.id === id || child.type === 'connector') continue;
-        if (child.parentFrameId === id || objectContainsObject(obj, child)) {
-          this._syncContainmentAfterMutation(child.id);
-        }
-      }
-      return;
-    }
-
+    // Find the smallest containing frame for this object (frames and non-frames alike)
+    const descendants = obj.type === 'frame' ? new Set(this._getFrameDescendants(id)) : null;
     const allFrames = this.getAll().filter((o) => o.type === 'frame' && o.id !== id);
     const currentParentId = obj.parentFrameId;
     const currentParent = currentParentId ? this.getObject(currentParentId) : null;
 
     let nextParent: BoardObject | null = null;
     for (const frame of allFrames) {
+      // Prevent circular containment: a frame can't be parented to its own descendant
+      if (descendants && descendants.has(frame.id)) continue;
       if (objectContainsObject(frame, obj)) {
         if (!nextParent || frame.width * frame.height < nextParent.width * nextParent.height) {
           nextParent = frame;
@@ -591,6 +584,17 @@ export class ObjectStore {
 
     if ((nextParent?.id || null) !== (currentParentId || null)) {
       this._setObject({ ...obj, parentFrameId: nextParent ? nextParent.id : null } as BoardObject);
+    }
+
+    // If the mutated object is a frame, also re-sync its children
+    if (obj.type === 'frame') {
+      const all = this.getAll();
+      for (const child of all) {
+        if (child.id === id || child.type === 'connector') continue;
+        if (child.parentFrameId === id || objectContainsObject(obj, child)) {
+          this._syncContainmentAfterMutation(child.id);
+        }
+      }
     }
   }
 
