@@ -54,6 +54,17 @@ export async function handleBoardRoutes(req: IncomingMessage, res: ServerRespons
     return json(res, 201, { id, name, owner_id: ownerId });
   }
 
+  const getOneMatch = url.pathname.match(/^\/api\/boards\/([^/]+)$/);
+  if (req.method === 'GET' && getOneMatch) {
+    const id = getOneMatch[1]!;
+    const { rows } = await db.query(
+      'SELECT id, name, owner_id, created_at, updated_at FROM boards WHERE id = $1',
+      [id]
+    );
+    if (rows.length === 0) return json(res, 404, { error: 'Board not found' });
+    return json(res, 200, rows[0]);
+  }
+
   const duplicateMatch = url.pathname.match(/^\/api\/boards\/([^/]+)\/duplicate$/);
   if (req.method === 'POST' && duplicateMatch) {
     const sourceId = duplicateMatch[1]!;

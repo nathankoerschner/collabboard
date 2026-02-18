@@ -24,6 +24,10 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<un
   return res.json();
 }
 
+export function getBoard(id: string): Promise<unknown> {
+  return fetchWithAuth(`/api/boards/${encodeURIComponent(id)}`);
+}
+
 export function listBoards(userId: string): Promise<unknown> {
   return fetchWithAuth(`/api/boards?userId=${encodeURIComponent(userId)}`);
 }

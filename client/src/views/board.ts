@@ -4,7 +4,7 @@ import { PresencePanel } from '../board/PresencePanel.js';
 import { Canvas } from '../canvas/Canvas.js';
 import { getUser, getToken } from '../auth.js';
 import { navigateTo } from '../router.js';
-import { runAICommand } from '../api.js';
+import { runAICommand, getBoard, renameBoard } from '../api.js';
 import type { ToolName } from '../types.js';
 
 let boardManager: BoardManager | null = null;
@@ -35,6 +35,8 @@ export const boardView = {
             <path d="M19 12H5M12 19l-7-7 7-7"/>
           </svg>
         </button>
+
+        <div class="board-name" id="board-name"></div>
 
         <div class="board-toolbar" id="toolbar">
           <div class="toolbar-group">
@@ -256,6 +258,43 @@ export const boardView = {
       }
     };
     window.addEventListener('keydown', window._boardKeyHandler);
+
+    // Fetch board name + click-to-rename
+    const boardNameEl = document.getElementById('board-name')!;
+    let currentBoardName = '';
+    getBoard(boardId).then((board) => {
+      const b = board as { name?: string };
+      if (b?.name) {
+        currentBoardName = b.name;
+        boardNameEl.textContent = currentBoardName;
+      }
+    }).catch(() => {});
+
+    boardNameEl.addEventListener('click', () => {
+      if (!currentBoardName) return;
+      const input = document.createElement('input');
+      input.className = 'board-name-input';
+      input.value = currentBoardName;
+      boardNameEl.textContent = '';
+      boardNameEl.appendChild(input);
+      input.focus();
+      input.select();
+
+      const finish = (save: boolean) => {
+        const newName = input.value.trim();
+        if (save && newName && newName !== currentBoardName) {
+          currentBoardName = newName;
+          renameBoard(boardId, newName).catch(() => {});
+        }
+        boardNameEl.textContent = currentBoardName;
+      };
+
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { e.preventDefault(); finish(false); input.remove(); }
+      });
+      input.addEventListener('blur', () => finish(true));
+    });
 
     const zoomIndicator = document.getElementById('zoom-indicator')!;
     zoomInterval = setInterval(() => {

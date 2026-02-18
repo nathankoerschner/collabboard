@@ -51,6 +51,44 @@
   color: var(--color-text);
 }
 
+.board-name {
+  position: absolute;
+  top: calc(16px + env(safe-area-inset-top));
+  left: calc(68px + env(safe-area-inset-left));
+  height: 40px;
+  display: flex;
+  align-items: center;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text);
+  z-index: 20;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+  border-radius: 6px;
+  padding: 0 6px;
+  transition: background 0.15s ease;
+}
+
+.board-name:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.board-name-input {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text);
+  border: 1px solid var(--color-primary);
+  border-radius: 6px;
+  padding: 0 6px;
+  outline: none;
+  background: var(--color-surface);
+  height: 100%;
+  width: 100%;
+}
+
 .toolbar-group {
   display: flex;
   gap: 4px;
