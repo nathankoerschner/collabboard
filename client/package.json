@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -14,6 +15,7 @@
     "yjs": "^13.6.20"
   },
   "devDependencies": {
+    "typescript": "^5.9.3",
     "vite": "^6.1.0"
   }
 }
