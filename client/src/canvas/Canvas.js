@@ -15,6 +15,9 @@ export class Canvas {
     this.callbacks = callbacks;
     this.selectedIds = [];
     this.animFrameId = null;
+    this.aiRevealMap = new Map();
+    this.seenObjectIds = new Set();
+    this.reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     this.renderer = new Renderer(this.objectStore.getPalette());
 
@@ -145,9 +148,13 @@ export class Canvas {
     const objects = this.objectStore.getAll();
     const byId = new Map(objects.map((o) => [o.id, o]));
     const editingId = this.textEditor.getEditingId();
+    this._trackAIReveals(objects);
 
     for (const obj of objects) {
-      this.renderer.drawObject(ctx, obj, byId, { skipText: obj.id === editingId });
+      this.renderer.drawObject(ctx, obj, byId, {
+        skipText: obj.id === editingId,
+        reveal: this._getRevealState(obj),
+      });
     }
 
     const selectedObjects = this.selectedIds.map((id) => byId.get(id)).filter(Boolean);
@@ -211,6 +218,10 @@ export class Canvas {
     this.inputHandler.setTool(tool);
   }
 
+  getViewportCenter() {
+    return this.camera.screenToWorld(this.canvasEl.width / 2, this.canvasEl.height / 2);
+  }
+
   getSelectedIds() {
     return [...this.selectedIds];
   }
@@ -220,5 +231,48 @@ export class Canvas {
     this.resizeObserver.disconnect();
     this.inputHandler.destroy();
     this.textEditor.destroy();
+  }
+
+  _trackAIReveals(objects) {
+    const now = performance.now();
+    const currentIds = new Set(objects.map((obj) => obj.id));
+    let staggerIndex = 0;
+
+    for (const obj of objects) {
+      if (this.seenObjectIds.has(obj.id)) continue;
+      this.seenObjectIds.add(obj.id);
+
+      const isAICreated = typeof obj.createdBy === 'string' && obj.createdBy.startsWith('ai:');
+      if (!isAICreated || this.reduceMotion) continue;
+
+      this.aiRevealMap.set(obj.id, {
+        startAt: now + staggerIndex * 50,
+        durationMs: 180,
+      });
+      staggerIndex += 1;
+    }
+
+    for (const id of [...this.aiRevealMap.keys()]) {
+      if (!currentIds.has(id)) this.aiRevealMap.delete(id);
+    }
+  }
+
+  _getRevealState(obj) {
+    const reveal = this.aiRevealMap.get(obj.id);
+    if (!reveal) return null;
+
+    const now = performance.now();
+    const elapsed = now - reveal.startAt;
+    if (elapsed <= 0) return { alpha: 0, scale: 0.92 };
+    if (elapsed >= reveal.durationMs) {
+      this.aiRevealMap.delete(obj.id);
+      return null;
+    }
+
+    const t = elapsed / reveal.durationMs;
+    return {
+      alpha: t,
+      scale: 0.92 + 0.08 * t,
+    };
   }
 }

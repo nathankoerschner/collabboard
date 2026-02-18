@@ -4,12 +4,15 @@ import { PresencePanel } from '../board/PresencePanel.js';
 import { Canvas } from '../canvas/Canvas.js';
 import { getUser, getToken } from '../auth.js';
 import { navigateTo } from '../router.js';
+import { runAICommand } from '../api.js';
 
 let boardManager = null;
 let canvas = null;
 let cursorManager = null;
 let presencePanel = null;
 let zoomInterval = null;
+let aiPanelOpen = false;
+let aiSubmitting = false;
 
 export const boardView = {
   async render(container, { boardId }) {
@@ -71,6 +74,24 @@ export const boardView = {
         </div>
 
         <div class="board-status" id="board-status"></div>
+        <div class="ai-command-bar" id="ai-command-bar" aria-hidden="true">
+          <form class="ai-command-form" id="ai-command-form">
+            <label class="ai-command-title" for="ai-command-input">Ask AI</label>
+            <div class="ai-command-row">
+              <input id="ai-command-input" class="ai-command-input" type="text" placeholder="Create a SWOT analysis" autocomplete="off" />
+              <button type="submit" class="ai-command-submit" id="ai-command-submit">Run</button>
+            </div>
+            <div class="ai-command-meta">
+              <div class="ai-command-spinner" id="ai-command-spinner" hidden></div>
+              <div class="ai-command-error" id="ai-command-error"></div>
+            </div>
+            <div class="ai-suggestions" id="ai-suggestions">
+              <button type="button" class="ai-suggestion-chip">Create a SWOT analysis</button>
+              <button type="button" class="ai-suggestion-chip">Make a retro board with columns</button>
+              <button type="button" class="ai-suggestion-chip">Arrange selected notes in a grid</button>
+            </div>
+          </form>
+        </div>
         <canvas id="board-canvas"></canvas>
       </div>
     `;
@@ -98,6 +119,7 @@ export const boardView = {
 
     const canvasEl = document.getElementById('board-canvas');
     const toolbar = document.getElementById('toolbar');
+    const aiEnabled = import.meta.env.VITE_AI_FEATURE_ENABLED === 'true';
 
     canvas = new Canvas(canvasEl, boardManager.getObjectStore(), cursorManager, {
       onToolChange: (tool) => {
@@ -122,8 +144,69 @@ export const boardView = {
       btn.classList.add('active');
     });
 
+    const aiBar = document.getElementById('ai-command-bar');
+    const aiForm = document.getElementById('ai-command-form');
+    const aiInput = document.getElementById('ai-command-input');
+    const aiSpinner = document.getElementById('ai-command-spinner');
+    const aiError = document.getElementById('ai-command-error');
+    const aiSuggestions = document.getElementById('ai-suggestions');
+
+    if (!aiEnabled) {
+      aiBar.remove();
+    } else {
+      aiSuggestions.addEventListener('click', (e) => {
+        const chip = e.target.closest('.ai-suggestion-chip');
+        if (!chip) return;
+        aiInput.value = chip.textContent;
+        aiInput.focus();
+      });
+
+      aiForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const prompt = aiInput.value.trim();
+        if (!prompt || aiSubmitting) return;
+
+        aiSubmitting = true;
+        aiError.textContent = '';
+        aiSpinner.hidden = false;
+
+        try {
+          const center = canvas.getViewportCenter();
+          await runAICommand(boardId, {
+            prompt,
+            viewportCenter: {
+              x: center.x,
+              y: center.y,
+            },
+            userId: user?.id || user?.sub || 'anonymous',
+          });
+
+          aiInput.value = '';
+          aiPanelOpen = false;
+          aiBar.classList.remove('visible');
+          aiBar.setAttribute('aria-hidden', 'true');
+        } catch (err) {
+          aiError.textContent = err?.message || 'AI command failed';
+        } finally {
+          aiSubmitting = false;
+          aiSpinner.hidden = true;
+        }
+      });
+    }
+
     window._boardKeyHandler = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
+      const isCommandToggle = (e.metaKey || e.ctrlKey) && e.key?.toLowerCase() === 'k';
+      if (isCommandToggle && aiEnabled) {
+        e.preventDefault();
+        aiPanelOpen = !aiPanelOpen;
+        aiBar.classList.toggle('visible', aiPanelOpen);
+        aiBar.setAttribute('aria-hidden', aiPanelOpen ? 'false' : 'true');
+        if (aiPanelOpen) aiInput.focus();
+        return;
+      }
+
+      if (isInput) return;
       const keyMap = { v: 'select', s: 'sticky', r: 'rectangle', e: 'ellipse', t: 'text', f: 'frame', c: 'connector' };
       const tool = keyMap[e.key?.toLowerCase()];
       if (tool && !e.metaKey && !e.ctrlKey) {
@@ -151,6 +234,8 @@ export const boardView = {
       clearInterval(zoomInterval);
       zoomInterval = null;
     }
+    aiPanelOpen = false;
+    aiSubmitting = false;
     presencePanel?.destroy();
     canvas?.destroy();
     cursorManager?.destroy();

@@ -1,3 +1,4 @@
+import dotenv from 'dotenv';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,6 +9,8 @@ import { handleBoardRoutes } from './routes/boards.js';
 import { verifyToken } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config();
 const PORT = process.env.PORT || 3001;
 
 const server = http.createServer(async (req, res) => {

@@ -37,13 +37,29 @@ export class Renderer {
     }
   }
 
-  drawObject(ctx, obj, objectsById, { skipText = false } = {}) {
-    if (obj.type === 'sticky') return this.drawStickyNote(ctx, obj, skipText);
-    if (obj.type === 'rectangle') return this.drawRectangle(ctx, obj);
-    if (obj.type === 'ellipse') return this.drawEllipse(ctx, obj);
-    if (obj.type === 'text') return this.drawText(ctx, obj, skipText);
-    if (obj.type === 'connector') return this.drawConnector(ctx, obj, objectsById);
-    if (obj.type === 'frame') return this.drawFrame(ctx, obj);
+  drawObject(ctx, obj, objectsById, { skipText = false, reveal = null } = {}) {
+    if (reveal) {
+      const center = getObjectCenter(obj);
+      ctx.save();
+      ctx.globalAlpha = reveal.alpha;
+      ctx.translate(center.x, center.y);
+      ctx.scale(reveal.scale, reveal.scale);
+      ctx.translate(-center.x, -center.y);
+    }
+
+    if (obj.type === 'sticky') return this._finishReveal(ctx, () => this.drawStickyNote(ctx, obj, skipText), reveal);
+    if (obj.type === 'rectangle') return this._finishReveal(ctx, () => this.drawRectangle(ctx, obj), reveal);
+    if (obj.type === 'ellipse') return this._finishReveal(ctx, () => this.drawEllipse(ctx, obj), reveal);
+    if (obj.type === 'text') return this._finishReveal(ctx, () => this.drawText(ctx, obj, skipText), reveal);
+    if (obj.type === 'connector') return this._finishReveal(ctx, () => this.drawConnector(ctx, obj, objectsById), reveal);
+    if (obj.type === 'frame') return this._finishReveal(ctx, () => this.drawFrame(ctx, obj), reveal);
+
+    if (reveal) ctx.restore();
+  }
+
+  _finishReveal(ctx, draw, reveal) {
+    draw();
+    if (reveal) ctx.restore();
   }
 
   drawStickyNote(ctx, obj, skipText = false) {

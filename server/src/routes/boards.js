@@ -1,5 +1,8 @@
 import { getPool } from '../db.js';
 import { nanoid } from 'nanoid';
+import { executeBoardAICommand } from '../ai/boardAgent.js';
+import { isAIEnabled } from '../ai/featureFlags.js';
+import { checkAIRateLimit } from '../ai/rateLimit.js';
 
 function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -50,6 +53,42 @@ export async function handleBoardRoutes(req, res, userId) {
       [id, name, ownerId]
     );
     return json(res, 201, { id, name, owner_id: ownerId });
+  }
+
+  // POST /api/boards/:id/ai/command
+  const aiCommandMatch = url.pathname.match(/^\/api\/boards\/([^/]+)\/ai\/command$/);
+  if (req.method === 'POST' && aiCommandMatch) {
+    if (!isAIEnabled()) {
+      return json(res, 404, { error: 'AI feature is disabled' });
+    }
+
+    const id = aiCommandMatch[1];
+    const body = await parseBody(req);
+    const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
+    if (!prompt) return json(res, 400, { error: 'prompt required' });
+
+    const requestUserId = userId || body.userId || 'anonymous';
+    const limiter = checkAIRateLimit(`${requestUserId}:${id}`);
+    if (!limiter.allowed) {
+      return json(res, 429, {
+        error: 'Rate limit exceeded',
+        resetAt: limiter.resetAt,
+        limit: limiter.limit,
+      });
+    }
+
+    try {
+      const result = await executeBoardAICommand({
+        boardId: id,
+        prompt,
+        viewportCenter: body.viewportCenter,
+        userId: requestUserId,
+      });
+      return json(res, 200, result);
+    } catch (err) {
+      console.error('AI command execution failed:', err.message);
+      return json(res, 500, { error: err.message || 'AI command failed' });
+    }
   }
 
   // PATCH /api/boards/:id

@@ -11,7 +11,16 @@ async function fetchWithAuth(url, options = {}) {
     if (token) headers['Authorization'] = `Bearer ${token}`;
   }
   const res = await fetch(url, { ...options, headers });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body = await res.json();
+      detail = body?.error ? ` - ${body.error}` : '';
+    } catch {
+      // ignore
+    }
+    throw new Error(`API error: ${res.status}${detail}`);
+  }
   return res.json();
 }
 
@@ -36,5 +45,12 @@ export function renameBoard(id, name) {
 export function deleteBoard(id) {
   return fetchWithAuth(`/api/boards/${id}`, {
     method: 'DELETE',
+  });
+}
+
+export function runAICommand(boardId, payload) {
+  return fetchWithAuth(`/api/boards/${encodeURIComponent(boardId)}/ai/command`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
