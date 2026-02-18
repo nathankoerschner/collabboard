@@ -272,6 +272,11 @@ resource "google_cloud_run_v2_service" "collabboard" {
         }
       }
 
+      env {
+        name  = "CLERK_PUBLISHABLE_KEY"
+        value = var.clerk_publishable_key
+      }
+
       startup_probe {
         http_get {
           path = "/api/health"

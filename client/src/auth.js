@@ -2,8 +2,24 @@ import { Clerk } from '@clerk/clerk-js';
 
 let clerk = null;
 
+async function resolvePublishableKey() {
+  try {
+    const res = await fetch('/api/runtime-config');
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data?.clerkPublishableKey === 'string' && data.clerkPublishableKey.trim()) {
+        return data.clerkPublishableKey.trim();
+      }
+    }
+  } catch {
+    // Ignore runtime config fetch failures and fall back to build-time env.
+  }
+
+  return import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+}
+
 export async function initAuth() {
-  const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+  const publishableKey = await resolvePublishableKey();
   if (!publishableKey) {
     console.log('No Clerk key configured, running without auth');
     return null;

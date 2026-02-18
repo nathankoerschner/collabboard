@@ -11,6 +11,10 @@ The app runs on Google Cloud:
 - **Artifact Registry** stores Docker images
 - **Terraform** manages all infrastructure (`terraform/`)
 
+Required Terraform variables for auth:
+- `clerk_secret_key` (server-side token verification)
+- `clerk_publishable_key` (browser Clerk initialization)
+
 ## CI/CD
 
 Every push to `master` triggers an automated deploy via **Google Cloud Build**:

@@ -21,4 +21,9 @@ variable "clerk_secret_key" {
   sensitive   = true
 }
 
+variable "clerk_publishable_key" {
+  description = "Clerk publishable key for browser auth"
+  type        = string
+  default     = ""
+}
 

@@ -9,8 +9,11 @@ import { handleBoardRoutes } from './routes/boards.js';
 import { verifyToken } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
-dotenv.config();
+const isProductionRuntime = process.env.NODE_ENV === 'production' || Boolean(process.env.K_SERVICE);
+if (!isProductionRuntime) {
+  dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+  dotenv.config();
+}
 const PORT = process.env.PORT || 3001;
 
 const server = http.createServer(async (req, res) => {
@@ -28,6 +31,13 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (req.url === '/api/runtime-config') {
+    const clerkPublishableKey = process.env.CLERK_PUBLISHABLE_KEY || process.env.VITE_CLERK_PUBLISHABLE_KEY || null;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ clerkPublishableKey }));
     return;
   }
 

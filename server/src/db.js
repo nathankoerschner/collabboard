@@ -7,6 +7,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let pool = null;
 
+function isProductionRuntime() {
+  return process.env.NODE_ENV === 'production' || Boolean(process.env.K_SERVICE);
+}
+
+function isLocalHostname(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
 function parseBool(value) {
   if (!value) return null;
   const normalized = value.trim().toLowerCase();
@@ -40,9 +48,27 @@ function resolveSslConfig(connectionString) {
   }
 }
 
+function resolveDatabaseUrl() {
+  const connectionString = process.env.DATABASE_URL?.trim();
+  if (!connectionString) return null;
+
+  try {
+    const hostname = new URL(connectionString).hostname;
+    if (isProductionRuntime() && isLocalHostname(hostname)) {
+      console.error('Ignoring DATABASE_URL with localhost host in production runtime');
+      return null;
+    }
+  } catch {
+    // Ignore parse errors and let pg validate the connection string later.
+  }
+
+  return connectionString;
+}
+
 export function getPool() {
-  if (!pool && process.env.DATABASE_URL) {
-    const connectionString = process.env.DATABASE_URL;
+  if (!pool) {
+    const connectionString = resolveDatabaseUrl();
+    if (!connectionString) return null;
     pool = new pg.Pool({
       connectionString,
       ssl: resolveSslConfig(connectionString),
