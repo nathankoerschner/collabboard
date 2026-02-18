@@ -54,6 +54,52 @@ export async function handleBoardRoutes(req: IncomingMessage, res: ServerRespons
     return json(res, 201, { id, name, owner_id: ownerId });
   }
 
+  const duplicateMatch = url.pathname.match(/^\/api\/boards\/([^/]+)\/duplicate$/);
+  if (req.method === 'POST' && duplicateMatch) {
+    const sourceId = duplicateMatch[1]!;
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: sourceRows } = await client.query(
+        'SELECT id, name, owner_id FROM boards WHERE id = $1',
+        [sourceId]
+      );
+      if (sourceRows.length === 0) {
+        await client.query('ROLLBACK');
+        return json(res, 404, { error: 'Board not found' });
+      }
+      const source = sourceRows[0] as { id: string; name: string; owner_id: string };
+      const newId = nanoid(12);
+      const newName = `Copy of ${source.name}`;
+      const ownerId = userId || source.owner_id;
+
+      await client.query(
+        'INSERT INTO boards (id, name, owner_id) VALUES ($1, $2, $3)',
+        [newId, newName, ownerId]
+      );
+      await client.query(
+        'INSERT INTO board_snapshots (board_id, data) SELECT $1, data FROM board_snapshots WHERE board_id = $2',
+        [newId, sourceId]
+      );
+      await client.query(
+        'INSERT INTO board_updates (board_id, data) SELECT $1, data FROM board_updates WHERE board_id = $2 ORDER BY id',
+        [newId, sourceId]
+      );
+      await client.query('COMMIT');
+
+      const { rows: newRows } = await client.query(
+        'SELECT id, name, owner_id, created_at, updated_at FROM boards WHERE id = $1',
+        [newId]
+      );
+      return json(res, 201, newRows[0]);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   const aiCommandMatch = url.pathname.match(/^\/api\/boards\/([^/]+)\/ai\/command$/);
   if (req.method === 'POST' && aiCommandMatch) {
     if (!isAIEnabled()) {

@@ -48,6 +48,12 @@ export function deleteBoard(id: string): Promise<unknown> {
   });
 }
 
+export function duplicateBoard(id: string): Promise<unknown> {
+  return fetchWithAuth(`/api/boards/${encodeURIComponent(id)}/duplicate`, {
+    method: 'POST',
+  });
+}
+
 export function runAICommand(boardId: string, payload: Record<string, unknown>): Promise<unknown> {
   return fetchWithAuth(`/api/boards/${encodeURIComponent(boardId)}/ai/command`, {
     method: 'POST',
