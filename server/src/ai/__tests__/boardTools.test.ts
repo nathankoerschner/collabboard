@@ -61,12 +61,21 @@ describe('createStickyNote', () => {
     const result = createSticky();
     const obj = runner.objects.get(result.id)!;
     expect(obj.color).toBe('yellow');
+    expect(obj.width).toBe(150);
+    expect(obj.height).toBe(150);
   });
 
   test('custom color', () => {
     const result = runner.createStickyNote({ text: 'hi', color: 'blue' });
     const obj = runner.objects.get(result.id)!;
     expect(obj.color).toBe('blue');
+  });
+
+  test('custom size', () => {
+    const result = runner.createStickyNote({ text: 'hi', width: 220, height: 180 });
+    const obj = runner.objects.get(result.id)!;
+    expect(obj.width).toBe(220);
+    expect(obj.height).toBe(180);
   });
 
   test('is tracked in createdIds', () => {
@@ -158,6 +167,8 @@ describe('createText', () => {
     const result = runner.createText({ content: 'Hello' });
     const obj = runner.objects.get(result.id)!;
     expect(obj.content).toBe('Hello');
+    expect(obj.width).toBe(220);
+    expect(obj.height).toBe(60);
   });
 
   test('fontSize defaults to medium', () => {
@@ -171,6 +182,13 @@ describe('createText', () => {
     const obj = runner.objects.get(result.id)!;
     expect((obj.style as any).bold).toBe(false);
     expect((obj.style as any).italic).toBe(false);
+  });
+
+  test('supports custom dimensions', () => {
+    const result = runner.createText({ content: 'Hi', width: 320, height: 100 });
+    const obj = runner.objects.get(result.id)!;
+    expect(obj.width).toBe(320);
+    expect(obj.height).toBe(100);
   });
 });
 

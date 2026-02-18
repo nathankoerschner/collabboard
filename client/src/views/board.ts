@@ -82,6 +82,17 @@ export const boardView = {
               </svg>
             </button>
           </div>
+          <div class="toolbar-group">
+            <button class="toolbar-btn" id="ai-chat-toggle" data-tooltip="Ask AI" aria-label="Open AI chat">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.937A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .962L15.5 14.063A2 2 0 0 0 14.063 15.5l-1.582 6.135a.5.5 0 0 1-.962 0z"/>
+                <path d="M20 3v4"/>
+                <path d="M22 5h-4"/>
+                <path d="M4 17v2"/>
+                <path d="M5 18H3"/>
+              </svg>
+            </button>
+          </div>
           <div class="toolbar-zoom" id="zoom-indicator">100%</div>
         </div>
 
@@ -135,11 +146,12 @@ export const boardView = {
 
     const canvasEl = document.getElementById('board-canvas') as HTMLCanvasElement;
     const toolbar = document.getElementById('toolbar')!;
+    const aiToggleBtn = document.getElementById('ai-chat-toggle');
     const aiEnabled = import.meta.env.VITE_AI_FEATURE_ENABLED === 'true';
 
     canvas = new Canvas(canvasEl, boardManager.getObjectStore(), cursorManager, {
       onToolChange: (tool) => {
-        toolbar.querySelectorAll('.toolbar-btn').forEach((b) => b.classList.remove('active'));
+        toolbar.querySelectorAll('.toolbar-btn[data-tool]').forEach((b) => b.classList.remove('active'));
         toolbar.querySelector(`[data-tool="${tool}"]`)?.classList.add('active');
       },
     });
@@ -156,7 +168,7 @@ export const boardView = {
       if (!btn) return;
       const tool = btn.dataset.tool as ToolName;
       canvas!.setTool(tool);
-      toolbar.querySelectorAll('.toolbar-btn').forEach((b) => b.classList.remove('active'));
+      toolbar.querySelectorAll('.toolbar-btn[data-tool]').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
     });
 
@@ -166,21 +178,21 @@ export const boardView = {
     const aiSpinner = document.getElementById('ai-command-spinner')!;
     const aiError = document.getElementById('ai-command-error')!;
     const aiSuggestions = document.getElementById('ai-suggestions')!;
+    const syncAiPanel = (isOpen: boolean) => {
+      aiPanelOpen = isOpen;
+      aiBar.classList.toggle('visible', aiPanelOpen);
+      aiBar.setAttribute('aria-hidden', aiPanelOpen ? 'false' : 'true');
+      aiToggleBtn?.classList.toggle('active', aiPanelOpen);
+      if (aiPanelOpen) aiInput.focus();
+    };
 
     if (!aiEnabled) {
       aiBar.remove();
+      aiToggleBtn?.remove();
     } else {
-      aiSuggestions.addEventListener('click', (e) => {
-        const chip = (e.target as HTMLElement).closest('.ai-suggestion-chip') as HTMLElement | null;
-        if (!chip) return;
-        aiInput.value = chip.textContent || '';
-        aiInput.focus();
-      });
-
-      aiForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const prompt = aiInput.value.trim();
-        if (!prompt || aiSubmitting) return;
+      const submitAICommand = async (prompt: string): Promise<void> => {
+        const trimmedPrompt = prompt.trim();
+        if (!trimmedPrompt || aiSubmitting) return;
 
         aiSubmitting = true;
         aiError.textContent = '';
@@ -189,7 +201,7 @@ export const boardView = {
         try {
           const center = canvas!.getViewportCenter();
           await runAICommand(boardId, {
-            prompt,
+            prompt: trimmedPrompt,
             viewportCenter: {
               x: center.x,
               y: center.y,
@@ -198,15 +210,30 @@ export const boardView = {
           });
 
           aiInput.value = '';
-          aiPanelOpen = false;
-          aiBar.classList.remove('visible');
-          aiBar.setAttribute('aria-hidden', 'true');
+          syncAiPanel(false);
         } catch (err: unknown) {
           aiError.textContent = (err as Error)?.message || 'AI command failed';
         } finally {
           aiSubmitting = false;
           (aiSpinner as HTMLElement).hidden = true;
         }
+      };
+
+      aiToggleBtn?.addEventListener('click', () => {
+        syncAiPanel(!aiPanelOpen);
+      });
+
+      aiSuggestions.addEventListener('click', async (e) => {
+        const chip = (e.target as HTMLElement).closest('.ai-suggestion-chip') as HTMLElement | null;
+        if (!chip) return;
+        const prompt = chip.textContent || '';
+        aiInput.value = prompt;
+        await submitAICommand(prompt);
+      });
+
+      aiForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await submitAICommand(aiInput.value);
       });
     }
 
@@ -215,10 +242,7 @@ export const boardView = {
       const isCommandToggle = (e.metaKey || e.ctrlKey) && e.key?.toLowerCase() === 'k';
       if (isCommandToggle && aiEnabled) {
         e.preventDefault();
-        aiPanelOpen = !aiPanelOpen;
-        aiBar.classList.toggle('visible', aiPanelOpen);
-        aiBar.setAttribute('aria-hidden', aiPanelOpen ? 'false' : 'true');
-        if (aiPanelOpen) aiInput.focus();
+        syncAiPanel(!aiPanelOpen);
         return;
       }
 
@@ -227,7 +251,7 @@ export const boardView = {
       const tool = keyMap[e.key?.toLowerCase()];
       if (tool && !e.metaKey && !e.ctrlKey) {
         canvas!.setTool(tool);
-        toolbar.querySelectorAll('.toolbar-btn').forEach((b) => b.classList.remove('active'));
+        toolbar.querySelectorAll('.toolbar-btn[data-tool]').forEach((b) => b.classList.remove('active'));
         toolbar.querySelector(`[data-tool="${tool}"]`)?.classList.add('active');
       }
     };

@@ -6,7 +6,7 @@ import { normalizeViewportCenter, toToolDefinitions } from './schema.js';
 import { finishAITrace, recordAIError, recordLLMGeneration, recordToolCall, startAITrace } from './observability.js';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
-const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-5.2';
 const MAX_TOOL_ROUNDS = 8;
 
 let openaiClient: OpenAI | null = null;
@@ -38,7 +38,17 @@ function buildSystemPrompt(): string {
     'Prefer getBoardState when object lookup is needed.',
     'Respect viewportCenter when placing new content; omit x/y to use deterministic placement near viewport center.',
     'Keep commands concise and deterministic.',
-  ].join(' ');
+    '',
+    'LAYOUT PATTERN: When creating structured boards (SWOT, retro, pros/cons, kanban, 2x2 matrix, etc.):',
+    '1. Create ONE outer frame first to contain the full template layout.',
+    '2. Create section/category frames INSIDE the outer frame, sized for user input.',
+    '3. Use frame titles for labels (e.g. "Strengths", "What went well").',
+    '4. Do NOT create seed stickies or prefilled notes unless the user explicitly asks for content.',
+    '5. Reserve ~24px margin on each side of a parent frame; usable area is (width - 48) x (height - 48).',
+    '6. Keep every inner frame fully within the parent usable area.',
+    '7. For multi-column layouts, ensure sum(column widths) + sum(gaps) <= parent usable width.',
+    'This ensures a frames-within-frames structure that users can fill in themselves.',
+  ].join('\n');
 }
 
 interface AICommandInput {

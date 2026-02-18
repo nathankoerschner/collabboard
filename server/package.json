@@ -10,7 +10,7 @@
   "dependencies": {
     "@clerk/backend": "^1.21.0",
     "dotenv": "^16.6.1",
-    "langfuse": "^3.38.6",
+    "langsmith": "^0.5.4",
     "lib0": "^0.2.99",
     "nanoid": "^5.0.9",
     "openai": "^5.12.2",

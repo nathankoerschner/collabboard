@@ -188,10 +188,12 @@ export class BoardToolRunner {
 
   createStickyNote(raw: Record<string, unknown> = {}): { id: string } {
     const args = validateToolArgs('createStickyNote', raw);
-    const placement = args.x == null || args.y == null ? this._nextPlacement(150, 150) : { x: args.x as number, y: args.y as number };
+    const width = args.width as number;
+    const height = args.height as number;
+    const placement = args.x == null || args.y == null ? this._nextPlacement(width, height) : { x: args.x as number, y: args.y as number };
 
     const obj = {
-      ...this._createBase('sticky', placement.x, placement.y, 150, 150),
+      ...this._createBase('sticky', placement.x, placement.y, width, height),
       text: args.text,
       color: sanitizeColor(args.color, 'yellow'),
     };
@@ -267,10 +269,12 @@ export class BoardToolRunner {
 
   createText(raw: Record<string, unknown> = {}): { id: string } {
     const args = validateToolArgs('createText', raw);
-    const placement = args.x == null || args.y == null ? this._nextPlacement(220, 60) : { x: args.x as number, y: args.y as number };
+    const width = args.width as number;
+    const height = args.height as number;
+    const placement = args.x == null || args.y == null ? this._nextPlacement(width, height) : { x: args.x as number, y: args.y as number };
 
     const obj = {
-      ...this._createBase('text', placement.x, placement.y, 220, 60),
+      ...this._createBase('text', placement.x, placement.y, width, height),
       content: args.content,
       color: sanitizeColor(args.color, 'gray'),
       style: {

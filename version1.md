@@ -186,7 +186,7 @@ getBoardState()
 
 ## Observability
 
-**Langfuse** for AI agent tracing only. No general application APM.
+**LangSmith** for AI agent tracing only. No general application APM.
 
 Traced events:
 - LLM request/response (prompt, completion, model, token usage)

@@ -133,10 +133,12 @@ describe('clampText', () => {
 describe('validateToolArgs', () => {
   describe('createStickyNote', () => {
     test('valid args', () => {
-      const result = validateToolArgs('createStickyNote', { text: 'hi', x: 10, y: 20, color: 'blue' });
+      const result = validateToolArgs('createStickyNote', { text: 'hi', x: 10, y: 20, width: 180, height: 140, color: 'blue' });
       expect(result.text).toBe('hi');
       expect(result.x).toBe(10);
       expect(result.y).toBe(20);
+      expect(result.width).toBe(180);
+      expect(result.height).toBe(140);
       expect(result.color).toBe('blue');
     });
 
@@ -144,6 +146,8 @@ describe('validateToolArgs', () => {
       const result = validateToolArgs('createStickyNote', { text: 'hi' });
       expect(result.x).toBeNull();
       expect(result.y).toBeNull();
+      expect(result.width).toBe(150);
+      expect(result.height).toBe(150);
     });
 
     test('invalid color falls back to yellow', () => {
@@ -209,8 +213,10 @@ describe('validateToolArgs', () => {
 
   describe('createText', () => {
     test('valid args', () => {
-      const result = validateToolArgs('createText', { content: 'Hello', fontSize: 'large', bold: true, italic: false });
+      const result = validateToolArgs('createText', { content: 'Hello', width: 300, height: 90, fontSize: 'large', bold: true, italic: false });
       expect(result.content).toBe('Hello');
+      expect(result.width).toBe(300);
+      expect(result.height).toBe(90);
       expect(result.fontSize).toBe('large');
       expect(result.bold).toBe(true);
       expect(result.italic).toBe(false);

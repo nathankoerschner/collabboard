@@ -43,7 +43,7 @@ For this PRD, plain OpenAI SDK tool-calling is the better fit: stateless single-
    - Tag AI-created objects via metadata (`createdBy: "ai:<id>"`, `createdAt`).
    - In `client/src/canvas/Canvas.js`/`Renderer.js`, animate newly observed AI-created objects with ~50ms stagger.
 
-9. **Add Langfuse observability (AI only)**
+9. **Add LangSmith observability (AI only)**
    - Trace LLM request/response metadata, tool calls, latency, and errors.
    - Keep sensitive board text handling configurable/redacted.
 
@@ -61,5 +61,5 @@ For this PRD, plain OpenAI SDK tool-calling is the better fit: stateless single-
 
 - PRD workflow is single-turn, stateless, and tool-calling focused.
 - Need strict control of exactly what and when to commit into Yjs.
-- Langfuse is already selected for tracing, reducing need for SDK-level tracing features.
+- LangSmith is already selected for tracing, reducing need for SDK-level tracing features.
 - Fewer moving parts improves delivery speed and debuggability for v1.

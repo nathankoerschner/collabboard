@@ -72,6 +72,8 @@ export function validateToolArgs(toolName: string, rawArgs: unknown = {}): Recor
       text: clampText(args.text ?? '', 2000, ''),
       x: typeof args.x === 'number' ? clampNumber(args.x, -100000, 100000, 0) : null,
       y: typeof args.y === 'number' ? clampNumber(args.y, -100000, 100000, 0) : null,
+      width: clampNumber(args.width, 24, 2000, 150),
+      height: clampNumber(args.height, 24, 2000, 150),
       color: sanitizeColor(args.color, 'yellow'),
     };
   }
@@ -118,6 +120,8 @@ export function validateToolArgs(toolName: string, rawArgs: unknown = {}): Recor
       content: clampText(args.content ?? '', 4000, ''),
       x: typeof args.x === 'number' ? clampNumber(args.x, -100000, 100000, 0) : null,
       y: typeof args.y === 'number' ? clampNumber(args.y, -100000, 100000, 0) : null,
+      width: clampNumber(args.width, 24, 2000, 220),
+      height: clampNumber(args.height, 24, 2000, 60),
       fontSize: (TEXT_SIZES as readonly string[]).includes(args.fontSize as string) ? args.fontSize : 'medium',
       bold: Boolean(args.bold),
       italic: Boolean(args.italic),
@@ -177,13 +181,15 @@ export function toToolDefinitions(): ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'createStickyNote',
-        description: 'Create a sticky note. Omit x/y to place near viewport center.',
+        description: 'Create a sticky note. Default size is 150x150. Omit x/y to place near viewport center. When placing inside a frame, set x/y within the frame bounds so it becomes a child of that frame.',
         parameters: {
           type: 'object',
           properties: {
             text: { type: 'string' },
             x: { type: 'number' },
             y: { type: 'number' },
+            width: { type: 'number' },
+            height: { type: 'number' },
             color: { type: 'string', enum: [...PALETTE_NAMES] },
           },
           required: ['text'],
@@ -195,7 +201,7 @@ export function toToolDefinitions(): ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'createShape',
-        description: 'Create a rectangle or ellipse.',
+        description: 'Create a rectangle or ellipse. Default size is 200x120.',
         parameters: {
           type: 'object',
           properties: {
@@ -215,7 +221,7 @@ export function toToolDefinitions(): ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'createFrame',
-        description: 'Create a frame container.',
+        description: 'Create a labeled section container. Use frames for categories/quadrants/columns where users will later add stickies. Treat frame margins as reserved: keep ~24px padding on each side, so usable space is (frame width - 48) x (frame height - 48). For the default 360x240 frame, usable space is 312x192. When generating inner columns/sections, ensure their total widths plus gaps fit within this usable space so all frames remain fully inside the parent frame.',
         parameters: {
           type: 'object',
           properties: {
@@ -233,7 +239,7 @@ export function toToolDefinitions(): ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'createConnector',
-        description: 'Create connector between objects or points.',
+        description: 'Create connector between objects or points. Connectors have a default size of 0x0.',
         parameters: {
           type: 'object',
           properties: {
@@ -261,13 +267,15 @@ export function toToolDefinitions(): ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'createText',
-        description: 'Create a text object.',
+        description: 'Create a text object. Default size is 220x60.',
         parameters: {
           type: 'object',
           properties: {
             content: { type: 'string' },
             x: { type: 'number' },
             y: { type: 'number' },
+            width: { type: 'number' },
+            height: { type: 'number' },
             fontSize: { type: 'string', enum: [...TEXT_SIZES] },
             bold: { type: 'boolean' },
             italic: { type: 'boolean' },
