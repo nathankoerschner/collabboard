@@ -68,20 +68,35 @@ export async function startAITrace({ boardId, userId, prompt, viewportCenter }: 
 export async function recordLLMGeneration(traceCtx: TraceContext, payload: { model: string; input: unknown; output: unknown; usage: unknown; metadata: unknown; error?: unknown }): Promise<unknown> {
   if (!traceCtx?.enabled) return null;
   try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const usage = payload.usage as any;
     const run = await traceCtx.trace.createChild({
       name: 'openai_tool_calling',
       run_type: 'llm',
       inputs: traceCtx.redacted ? { redacted: true } : payload.input,
       extra: {
         metadata: {
+          ls_model_name: payload.model,
+          ls_provider: 'openai',
           model: payload.model,
           ...(payload.metadata as Record<string, unknown>),
         },
       },
     });
     await run.postRun();
+
+    const usageMetadata = usage
+      ? {
+          input_tokens: usage.prompt_tokens ?? 0,
+          output_tokens: usage.completion_tokens ?? 0,
+          total_tokens: usage.total_tokens ?? 0,
+        }
+      : undefined;
+
     await run.end({
-      outputs: traceCtx.redacted ? { redacted: true } : { response: payload.output, usage: payload.usage },
+      outputs: traceCtx.redacted
+        ? { redacted: true }
+        : { response: payload.output, ...(usageMetadata && { usage_metadata: usageMetadata }) },
       error: payload.error ? String(payload.error) : undefined,
     });
     await run.patchRun();
