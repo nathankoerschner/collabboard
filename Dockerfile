@@ -4,7 +4,7 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 # Copy workspace root package files
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json tsconfig.base.json ./
 COPY client/package.json client/
 COPY server/package.json server/
 
@@ -15,8 +15,8 @@ RUN npm ci
 COPY client/ client/
 COPY server/ server/
 
-# Build client (Vite SPA → client/dist/)
-RUN npm run build
+# Build client (Vite SPA → client/dist/) and server (tsc → server/dist/)
+RUN npm run build -w client && npm run build -w server
 
 # Stage 2: Production image
 FROM node:20-alpine
@@ -30,8 +30,8 @@ COPY server/package.json server/
 # Install production dependencies only (server workspace)
 RUN npm ci --omit=dev --workspace=server
 
-# Copy server source
-COPY server/ server/
+# Copy compiled server from build stage
+COPY --from=build /app/server/dist server/dist/
 
 # Copy built client assets from build stage
 COPY --from=build /app/client/dist client/dist/
