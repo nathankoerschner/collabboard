@@ -1,16 +1,19 @@
 import { navigateTo } from '../router.js';
 import { nanoid } from 'nanoid';
 import { getUser, mountUserButton, getClerk, signOut } from '../auth.js';
-import { listBoards, createBoard, renameBoard, deleteBoard, duplicateBoard } from '../api.js';
+import { listBoards, createBoard, renameBoard, deleteBoard, duplicateBoard, removeCollaborator } from '../api.js';
 import { confirmModal } from '../components/confirmModal.js';
 
 interface BoardItem {
   id: string;
   name: string;
   owner_id: string;
+  role?: string;
   created_at: string;
   updated_at: string;
 }
+
+type FilterTab = 'all' | 'owned' | 'shared';
 
 function escapeHtml(s: string): string {
   const div = document.createElement('div');
@@ -33,10 +36,12 @@ let selectMode = false;
 let selectedIds = new Set<string>();
 let searchQuery = '';
 let activeRenameId: string | null = null;
+let activeFilter: FilterTab = 'all';
 
 let boardListEl: HTMLElement | null = null;
 let dashboardActionsEl: HTMLElement | null = null;
 let bulkBarEl: HTMLElement | null = null;
+let filterTabsEl: HTMLElement | null = null;
 
 // ─── Context Menu ───────────────────────────────────────────────────
 let activeMenu: HTMLElement | null = null;
@@ -50,14 +55,24 @@ function closeContextMenu() {
 
 function openContextMenu(boardId: string, anchorEl: HTMLElement) {
   closeContextMenu();
+  const board = boards.find(b => b.id === boardId);
+  const isShared = board?.role === 'collaborator';
   const rect = anchorEl.getBoundingClientRect();
   const menu = document.createElement('div');
   menu.className = 'context-menu';
-  menu.innerHTML = `
-    <button class="context-menu-item" data-action="rename">Rename</button>
-    <button class="context-menu-item" data-action="duplicate">Duplicate</button>
-    <button class="context-menu-item context-menu-item--danger" data-action="delete">Delete</button>
-  `;
+
+  if (isShared) {
+    menu.innerHTML = `
+      <button class="context-menu-item" data-action="duplicate">Duplicate</button>
+      <button class="context-menu-item context-menu-item--danger" data-action="leave">Leave</button>
+    `;
+  } else {
+    menu.innerHTML = `
+      <button class="context-menu-item" data-action="rename">Rename</button>
+      <button class="context-menu-item" data-action="duplicate">Duplicate</button>
+      <button class="context-menu-item context-menu-item--danger" data-action="delete">Delete</button>
+    `;
+  }
   menu.style.top = `${rect.bottom + 4}px`;
   menu.style.left = `${rect.left}px`;
 
@@ -69,6 +84,7 @@ function openContextMenu(boardId: string, anchorEl: HTMLElement) {
     if (action === 'rename') startRename(boardId);
     else if (action === 'duplicate') doDuplicate(boardId);
     else if (action === 'delete') doDelete(boardId);
+    else if (action === 'leave') doLeave(boardId);
   });
 
   document.body.appendChild(menu);
@@ -141,6 +157,22 @@ async function doDelete(boardId: string) {
   rerender();
 }
 
+async function doLeave(boardId: string) {
+  const board = boards.find(b => b.id === boardId);
+  if (!board) return;
+  const user = getUser();
+  const ok = await confirmModal({
+    title: 'Leave Board',
+    message: `Are you sure you want to leave "${escapeHtml(board.name)}"? You will lose access unless re-invited.`,
+    confirmLabel: 'Leave',
+    confirmDanger: true,
+  });
+  if (!ok) return;
+  await removeCollaborator(boardId, user?.id || 'anonymous');
+  boards = boards.filter(b => b.id !== boardId);
+  rerender();
+}
+
 async function doDuplicate(boardId: string) {
   try {
     const newBoard = await duplicateBoard(boardId) as BoardItem;
@@ -208,6 +240,39 @@ function selectAll() {
   }
   rerender();
   renderBulkBar();
+}
+
+// ─── Filter ─────────────────────────────────────────────────────────
+async function setFilter(filter: FilterTab) {
+  activeFilter = filter;
+  renderFilterTabs();
+  try {
+    const apiFilter = filter === 'all' ? undefined : filter;
+    boards = await listBoards(apiFilter) as BoardItem[];
+    rerender();
+  } catch {
+    boards = [];
+    rerender();
+  }
+}
+
+function renderFilterTabs() {
+  if (!filterTabsEl) return;
+  const tabs: { id: FilterTab; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'owned', label: 'My Boards' },
+    { id: 'shared', label: 'Shared with Me' },
+  ];
+  filterTabsEl.innerHTML = tabs.map(t =>
+    `<button class="filter-tab ${t.id === activeFilter ? 'active' : ''}" data-filter="${t.id}">${t.label}</button>`
+  ).join('');
+
+  filterTabsEl.querySelectorAll('.filter-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const filter = (btn as HTMLElement).dataset.filter as FilterTab;
+      setFilter(filter);
+    });
+  });
 }
 
 // ─── Filtering ──────────────────────────────────────────────────────
@@ -285,9 +350,11 @@ function rerender() {
 
   boardListEl.innerHTML = filtered.map(board => {
     const isSelected = selectedIds.has(board.id);
+    const isShared = board.role === 'collaborator';
     return `
       <div class="board-card ${isSelected ? 'board-card--selected' : ''}" data-id="${board.id}">
         ${selectMode ? `<input type="checkbox" class="board-card-checkbox" ${isSelected ? 'checked' : ''}>` : `<button class="board-card-menu-btn" data-id="${board.id}" aria-label="Board options">&#x22EE;</button>`}
+        ${isShared ? '<div class="board-card-badge">Shared</div>' : ''}
         <div class="board-card-name">${escapeHtml(board.name)}</div>
         <div class="board-card-time">${timeAgo(board.updated_at)}</div>
       </div>
@@ -304,9 +371,8 @@ export const dashboardView = {
     selectedIds = new Set();
     searchQuery = '';
     activeRenameId = null;
+    activeFilter = 'all';
     closeContextMenu();
-
-    const user = getUser();
 
     container.innerHTML = `
       <div class="dashboard">
@@ -319,6 +385,7 @@ export const dashboardView = {
         </header>
         <div class="dashboard-content">
           <div class="dashboard-actions" id="dashboard-actions"></div>
+          <div class="dashboard-filter-tabs" id="filter-tabs"></div>
           <div class="search-bar" id="search-bar">
             <input type="text" class="search-input" id="search-input" placeholder="Search boards...">
           </div>
@@ -333,8 +400,10 @@ export const dashboardView = {
     boardListEl = document.getElementById('board-list');
     dashboardActionsEl = document.getElementById('dashboard-actions');
     bulkBarEl = document.getElementById('bulk-bar');
+    filterTabsEl = document.getElementById('filter-tabs');
 
     renderActions();
+    renderFilterTabs();
 
     const userBtnEl = document.getElementById('clerk-user-button');
     if (getClerk()) {
@@ -386,7 +455,7 @@ export const dashboardView = {
 
     // Load boards
     try {
-      boards = await listBoards(user?.id || 'anonymous') as BoardItem[];
+      boards = await listBoards() as BoardItem[];
       rerender();
     } catch {
       boardListEl!.innerHTML = `
@@ -402,5 +471,6 @@ export const dashboardView = {
     boardListEl = null;
     dashboardActionsEl = null;
     bulkBarEl = null;
+    filterTabsEl = null;
   },
 };

@@ -5,6 +5,7 @@ import { Canvas } from '../canvas/Canvas.js';
 import { getUser, getToken } from '../auth.js';
 import { navigateTo } from '../router.js';
 import { runAICommand, getBoard, renameBoard } from '../api.js';
+import { openBoardOptionsModal } from '../components/boardOptionsModal.js';
 import type { ToolName } from '../types.js';
 
 let boardManager: BoardManager | null = null;
@@ -37,6 +38,14 @@ export const boardView = {
         </button>
 
         <div class="board-name" id="board-name"></div>
+
+        <button class="board-options-btn" id="board-options-btn" title="Board options" aria-label="Board options">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="12" cy="5" r="1.5"/>
+            <circle cx="12" cy="12" r="1.5"/>
+            <circle cx="12" cy="19" r="1.5"/>
+          </svg>
+        </button>
 
         <div class="board-toolbar" id="toolbar">
           <div class="toolbar-group">
@@ -137,6 +146,9 @@ export const boardView = {
           statusEl.textContent = 'Reconnecting...';
           statusEl.classList.add('visible');
         }
+      },
+      onAccessRevoked: () => {
+        navigateTo('/dashboard');
       },
     });
     window.__collabboardDebug = {
@@ -259,15 +271,18 @@ export const boardView = {
     };
     window.addEventListener('keydown', window._boardKeyHandler);
 
-    // Fetch board name + click-to-rename
+    // Fetch board data + click-to-rename
     const boardNameEl = document.getElementById('board-name')!;
     let currentBoardName = '';
+    let boardIsOwner = false;
+
     getBoard(boardId).then((board) => {
-      const b = board as { name?: string };
+      const b = board as { name?: string; owner_id?: string; role?: string };
       if (b?.name) {
         currentBoardName = b.name;
         boardNameEl.textContent = currentBoardName;
       }
+      boardIsOwner = b?.role === 'owner' || b?.owner_id === user?.id;
     }).catch(() => {});
 
     boardNameEl.addEventListener('click', () => {
@@ -294,6 +309,20 @@ export const boardView = {
         if (e.key === 'Escape') { e.preventDefault(); finish(false); input.remove(); }
       });
       input.addEventListener('blur', () => finish(true));
+    });
+
+    // Board Options button
+    document.getElementById('board-options-btn')!.addEventListener('click', () => {
+      openBoardOptionsModal({
+        boardId,
+        boardName: currentBoardName || 'Untitled Board',
+        isOwner: boardIsOwner,
+        onRename: (newName) => {
+          currentBoardName = newName;
+          boardNameEl.textContent = newName;
+        },
+        onClose: () => {},
+      });
     });
 
     const zoomIndicator = document.getElementById('zoom-indicator')!;

@@ -1,12 +1,48 @@
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 // @ts-expect-error y-websocket/bin/utils has no types
 import { setupWSConnection, setPersistence } from 'y-websocket/bin/utils';
 import { getPersistence } from './persistence.js';
 import { verifyToken } from './auth.js';
+import { getBoardRole } from './permissions.js';
 
 const wss = new WebSocketServer({ noServer: true });
+
+// Track connections: boardId -> userId -> Set<ws>
+const boardConnections = new Map<string, Map<string, Set<WebSocket>>>();
+
+function trackConnection(boardId: string, userId: string, ws: WebSocket): void {
+  if (!boardConnections.has(boardId)) {
+    boardConnections.set(boardId, new Map());
+  }
+  const boardMap = boardConnections.get(boardId)!;
+  if (!boardMap.has(userId)) {
+    boardMap.set(userId, new Set());
+  }
+  boardMap.get(userId)!.add(ws);
+
+  ws.on('close', () => {
+    const userSockets = boardMap.get(userId);
+    if (userSockets) {
+      userSockets.delete(ws);
+      if (userSockets.size === 0) boardMap.delete(userId);
+    }
+    if (boardMap.size === 0) boardConnections.delete(boardId);
+  });
+}
+
+export function disconnectUser(boardId: string, userId: string): void {
+  const boardMap = boardConnections.get(boardId);
+  if (!boardMap) return;
+  const userSockets = boardMap.get(userId);
+  if (!userSockets) return;
+  for (const ws of userSockets) {
+    ws.close(4003, 'Access revoked');
+  }
+  boardMap.delete(userId);
+  if (boardMap.size === 0) boardConnections.delete(boardId);
+}
 
 export function initPersistence(): void {
   const persistence = getPersistence();
@@ -38,6 +74,7 @@ export async function handleUpgrade(req: IncomingMessage, socket: Duplex, head: 
     }
 
     const boardId = decodeURIComponent(match[1]!);
+    let userId: string | null = null;
 
     if (process.env.CLERK_SECRET_KEY) {
       const token = url.searchParams.get('token');
@@ -45,6 +82,15 @@ export async function handleUpgrade(req: IncomingMessage, socket: Duplex, head: 
       if (!decoded) {
         console.warn(`WebSocket auth rejected for board ${boardId}`);
         rejectUpgrade(socket, 401, 'Unauthorized');
+        return;
+      }
+      userId = (decoded.sub as string) || null;
+
+      // Permission check
+      const role = await getBoardRole(boardId, userId);
+      if (!role) {
+        console.warn(`WebSocket permission denied for board ${boardId}, user ${userId}`);
+        rejectUpgrade(socket, 403, 'Forbidden');
         return;
       }
     }
@@ -55,6 +101,9 @@ export async function handleUpgrade(req: IncomingMessage, socket: Duplex, head: 
     }
 
     wss.handleUpgrade(req, socket, head, (ws) => {
+      if (userId) {
+        trackConnection(boardId, userId, ws);
+      }
       wss.emit('connection', ws, req, { docName: boardId });
     });
   } catch (err: unknown) {

@@ -11,6 +11,9 @@ import {
 import type { Point } from './schema.js';
 
 const BASE_MIN_SIZE = 24;
+const FRAME_SIDE_PADDING = 24;
+const FRAME_TOP_PADDING = 24;
+const FRAME_TITLE_BAR_HEIGHT = 32;
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -394,7 +397,72 @@ export class BoardToolRunner {
     };
   }
 
+  _normalizeGeneratedFrameWrap(): void {
+    const generatedFrames = [...this.createdIds]
+      .map((id) => this.objects.get(id))
+      .filter((obj): obj is Record<string, unknown> => !!obj && obj.type === 'frame');
+
+    // Only normalize structured template generations (e.g. SWOT) with many frames.
+    if (generatedFrames.length < 3) return;
+
+    const outerTitlePattern = /(analysis|template|board|matrix|kanban|retro|swot|container|outer)/i;
+    const titledCandidates = generatedFrames.filter((frame) => outerTitlePattern.test(String(frame.title || '')));
+
+    let outerFrame = (titledCandidates.length ? titledCandidates : generatedFrames)[0]!;
+    let maxArea = -Infinity;
+    for (const frame of titledCandidates.length ? titledCandidates : generatedFrames) {
+      const area = Number(frame.width || 0) * Number(frame.height || 0);
+      if (area > maxArea) {
+        maxArea = area;
+        outerFrame = frame;
+      }
+    }
+
+    const innerFrames = generatedFrames.filter((f) => f.id !== outerFrame.id);
+    if (!innerFrames.length) return;
+
+    let minInnerX = Infinity;
+    let minInnerY = Infinity;
+    let maxInnerRight = -Infinity;
+    let maxInnerBottom = -Infinity;
+
+    for (const frame of innerFrames) {
+      const x = Number(frame.x || 0);
+      const y = Number(frame.y || 0);
+      const width = Number(frame.width || 0);
+      const height = Number(frame.height || 0);
+      minInnerX = Math.min(minInnerX, x);
+      minInnerY = Math.min(minInnerY, y);
+      maxInnerRight = Math.max(maxInnerRight, x + width);
+      maxInnerBottom = Math.max(maxInnerBottom, y + height);
+    }
+
+    if (![minInnerX, minInnerY, maxInnerRight, maxInnerBottom].every(Number.isFinite)) return;
+
+    const nextX = Math.round(minInnerX - FRAME_SIDE_PADDING);
+    const nextY = Math.round(minInnerY - (FRAME_TITLE_BAR_HEIGHT + FRAME_TOP_PADDING));
+    const nextWidth = Math.max(BASE_MIN_SIZE, Math.round(maxInnerRight + FRAME_SIDE_PADDING - nextX));
+    const nextHeight = Math.max(BASE_MIN_SIZE, Math.round(maxInnerBottom + FRAME_SIDE_PADDING - nextY));
+
+    if (
+      Number(outerFrame.x) === nextX &&
+      Number(outerFrame.y) === nextY &&
+      Number(outerFrame.width) === nextWidth &&
+      Number(outerFrame.height) === nextHeight
+    ) return;
+
+    this._setObject({
+      ...outerFrame,
+      x: nextX,
+      y: nextY,
+      width: nextWidth,
+      height: nextHeight,
+    });
+  }
+
   applyToDoc(): { createdIds: string[]; updatedIds: string[]; deletedIds: string[]; toolCalls: ToolCallEntry[] } {
+    this._normalizeGeneratedFrameWrap();
+
     const objectsMap = this.doc.getMap('objects');
     const zOrder = this.doc.getArray('zOrder');
     const YMapCtor = objectsMap.constructor as new () => YTypes.Map<unknown>;

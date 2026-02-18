@@ -6,6 +6,7 @@ import { ObjectStore } from './ObjectStore.js';
 interface BoardManagerOptions {
   token?: string | null;
   onStatusChange?: ((status: string) => void) | null;
+  onAccessRevoked?: (() => void) | null;
 }
 
 export class BoardManager {
@@ -33,10 +34,20 @@ export class BoardManager {
 
     this.awareness = this.provider.awareness;
     this.onStatusChange = options.onStatusChange || null;
+    const onAccessRevoked = options.onAccessRevoked || null;
 
     this.provider.on('status', ({ status }: { status: string }) => {
       this.onStatusChange?.(status);
     });
+
+    // Handle access revoked (ws close code 4003)
+    if (onAccessRevoked) {
+      this.provider.on('connection-close', (event: CloseEvent | null) => {
+        if (event?.code === 4003) {
+          onAccessRevoked();
+        }
+      });
+    }
   }
 
   getObjectStore(): ObjectStore {

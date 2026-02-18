@@ -44,10 +44,19 @@ function buildSystemPrompt(): string {
     '2. Create section/category frames INSIDE the outer frame, sized for user input.',
     '3. Use frame titles for labels (e.g. "Strengths", "What went well").',
     '4. Do NOT create seed stickies or prefilled notes unless the user explicitly asks for content.',
-    '5. Reserve ~24px margin on each side of a parent frame; usable area is (width - 48) x (height - 48).',
-    '6. Keep every inner frame fully within the parent usable area.',
-    '7. For multi-column layouts, ensure sum(column widths) + sum(gaps) <= parent usable width.',
-    'This ensures a frames-within-frames structure that users can fill in themselves.',
+    '5. Frame title bar height is 32px; keep this reserved for label/selection behavior.',
+    '6. Sticky-fit sizing rule (deterministic): size each input section frame to fit 6 default stickies in a 3x2 grid with fixed 24px gaps.',
+    '7. Use sticky size 150x150, so required note area is 498x324 (3*150 + 2*24 by 2*150 + 24).',
+    '8. Include 24px inner padding on all sides of that note area and keep it below the 32px title bar.',
+    '9. Therefore, use minimum ACTUAL section frame size 546x404 to guarantee the 3x2 sticky layout fits.',
+    '10. Placement rule: use ACTUAL frame dimensions (outer bounds) for all x/y placement and containment math.',
+    '11. Deterministic spacing rule: use fixed 24px gaps between sibling frames and fixed 24px parent padding.',
+    '12. Deterministic ordering rule: place sibling frames left-to-right, then top-to-bottom, with aligned top edges per row.',
+    '13. For N equal columns inside a parent: columnWidth = floor((parentUsableWidth - (N - 1) * 24) / N).',
+    '14. Outside-frame wrap rule: include ALL generated section-fill frames when computing outer bounds (every inner frame created for sections).',
+    '15. Account for the outer frame title bar at the top: reserve 32px title bar + 24px top padding above inner content.',
+    '16. Compute outer bounds deterministically from inner-frame extents: left = minInnerX - 24, top = minInnerY - (32 + 24), right = maxInnerRight + 24, bottom = maxInnerBottom + 24.',
+    '17. Keep every inner frame fully within the parent usable area after applying the fixed-gap math.',
   ].join('\n');
 }
 

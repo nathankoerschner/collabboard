@@ -7,6 +7,8 @@ import type { Duplex } from 'node:stream';
 import { handleUpgrade, initPersistence } from './wsServer.js';
 import { migrate } from './db.js';
 import { handleBoardRoutes } from './routes/boards.js';
+import { handleCollaboratorRoutes } from './routes/collaborators.js';
+import { handleUserRoutes } from './routes/users.js';
 import { verifyToken } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -44,14 +46,37 @@ const server = http.createServer(async (req, res) => {
   }
 
   const url = new URL(req.url!, `http://${req.headers.host}`);
+
+  // Extract userId from auth header for all API routes
+  let userId: string | null = null;
+  if (url.pathname.startsWith('/api/')) {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      const decoded = await verifyToken(authHeader.slice(7));
+      userId = (decoded?.sub as string) || null;
+    }
+  }
+
+  // User search routes
+  if (url.pathname.startsWith('/api/users')) {
+    try {
+      const handled = await handleUserRoutes(req, res, userId);
+      if (handled !== false) return;
+    } catch (err: unknown) {
+      console.error('User route error:', (err as Error).message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal server error' }));
+      return;
+    }
+  }
+
+  // Board routes (includes collaborators and sharing)
   if (url.pathname.startsWith('/api/boards')) {
     try {
-      let userId: string | null = null;
-      const authHeader = req.headers.authorization;
-      if (authHeader?.startsWith('Bearer ')) {
-        const decoded = await verifyToken(authHeader.slice(7));
-        userId = (decoded?.sub as string) || null;
-      }
+      // Try collaborator/sharing routes first
+      const collabHandled = await handleCollaboratorRoutes(req, res, userId);
+      if (collabHandled !== false) return;
+
       const handled = await handleBoardRoutes(req, res, userId);
       if (handled !== false) return;
     } catch (err: unknown) {

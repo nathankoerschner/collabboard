@@ -1,6 +1,7 @@
 @import './landing.css';
 @import './dashboard.css';
 @import './board.css';
+@import './board-options.css';
 
 *, *::before, *::after {
   box-sizing: border-box;

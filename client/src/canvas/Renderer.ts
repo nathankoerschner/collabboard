@@ -375,21 +375,30 @@ export class Renderer {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
 
-    const words = String(text).split(/\s+/);
-    let line = '';
     let cy = y;
+    const paragraphs = String(text).split('\n');
 
-    for (const word of words) {
-      const test = line ? `${line} ${word}` : word;
-      if (ctx.measureText(test).width > maxWidth && line) {
-        ctx.fillText(line, x, cy);
-        line = word;
+    for (const paragraph of paragraphs) {
+      if (!paragraph.length) {
         cy += lineHeight;
-      } else {
-        line = test;
+        continue;
       }
+
+      const words = paragraph.split(/\s+/);
+      let line = '';
+      for (const word of words) {
+        const test = line ? `${line} ${word}` : word;
+        if (ctx.measureText(test).width > maxWidth && line) {
+          ctx.fillText(line, x, cy);
+          line = word;
+          cy += lineHeight;
+        } else {
+          line = test;
+        }
+      }
+      if (line) ctx.fillText(line, x, cy);
+      cy += lineHeight;
     }
-    if (line) ctx.fillText(line, x, cy);
   }
 
   _drawRotatedBox(ctx: CanvasRenderingContext2D, obj: BoardObject, drawFn: (lx: number, ly: number, w: number, h: number) => void): void {

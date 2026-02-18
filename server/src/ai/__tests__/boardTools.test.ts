@@ -424,6 +424,34 @@ describe('applyToDoc', () => {
     // updatedIds filters out createdIds
     expect(result.updatedIds).not.toContain(a.id);
   });
+
+  test('normalizes structured frame layouts so outer frame wraps all generated inner frames', () => {
+    const outer = runner.createFrame({ title: 'SWOT Analysis', x: 0, y: 0, width: 360, height: 240 });
+    runner.createFrame({ title: 'Strengths', x: 100, y: 120, width: 372, height: 578 });
+    runner.createFrame({ title: 'Weaknesses', x: 500, y: 120, width: 372, height: 578 });
+    runner.createFrame({ title: 'Opportunities', x: 100, y: 730, width: 372, height: 578 });
+    runner.createFrame({ title: 'Threats', x: 500, y: 730, width: 372, height: 578 });
+
+    runner.applyToDoc();
+
+    const yObj = doc.getMap('objects').get(outer.id) as Y.Map<unknown>;
+    expect(yObj.get('x')).toBe(76); // minInnerX(100) - 24
+    expect(yObj.get('y')).toBe(64); // minInnerY(120) - (32 + 24)
+    expect(yObj.get('width')).toBe(820); // maxInnerRight(872) + 24 - x(76)
+    expect(yObj.get('height')).toBe(1268); // maxInnerBottom(1308) + 24 - y(64)
+  });
+
+  test('does not auto-wrap when fewer than 3 frames are generated', () => {
+    const outer = runner.createFrame({ title: 'Container', x: 0, y: 0, width: 360, height: 240 });
+    runner.createFrame({ title: 'Section', x: 100, y: 120, width: 372, height: 578 });
+    runner.applyToDoc();
+
+    const yObj = doc.getMap('objects').get(outer.id) as Y.Map<unknown>;
+    expect(yObj.get('x')).toBe(0);
+    expect(yObj.get('y')).toBe(0);
+    expect(yObj.get('width')).toBe(360);
+    expect(yObj.get('height')).toBe(240);
+  });
 });
 
 describe('placement grid', () => {
