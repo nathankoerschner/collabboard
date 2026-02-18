@@ -1,4 +1,5 @@
-import * as Y from 'yjs';
+import Y from './yjs.js';
+import type * as YTypes from 'yjs';
 import { getPool } from './db.js';
 
 const COMPACT_THRESHOLD = 100;
@@ -6,8 +7,8 @@ const updateCounts = new Map<string, number>();
 const pendingCompactions = new Map<string, Promise<void>>();
 
 interface Persistence {
-  bindState: (docName: string, doc: Y.Doc) => Promise<void>;
-  writeState: (docName: string, doc: Y.Doc) => Promise<void>;
+  bindState: (docName: string, doc: YTypes.Doc) => Promise<void>;
+  writeState: (docName: string, doc: YTypes.Doc) => Promise<void>;
 }
 
 export function getPersistence(): Persistence | null {
@@ -101,7 +102,7 @@ export function getPersistence(): Persistence | null {
   };
 }
 
-async function compact(docName: string, doc: Y.Doc): Promise<void> {
+async function compact(docName: string, doc: YTypes.Doc): Promise<void> {
   const db = getPool();
   if (!db) return;
 

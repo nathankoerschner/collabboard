@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import * as Y from 'yjs';
+import type * as YTypes from 'yjs';
 import {
   clampNumber,
   clampText,
@@ -17,7 +17,7 @@ function clone<T>(value: T): T {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function yMapToObject(yMap: Y.Map<any>): Record<string, unknown> {
+function yMapToObject(yMap: YTypes.Map<any>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   yMap.forEach((value: unknown, key: string) => {
     out[key] = value;
@@ -26,7 +26,7 @@ function yMapToObject(yMap: Y.Map<any>): Record<string, unknown> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function toYMap(obj: Record<string, unknown>, YMapCtor: new () => Y.Map<any>): Y.Map<any> {
+function toYMap(obj: Record<string, unknown>, YMapCtor: new () => YTypes.Map<any>): YTypes.Map<any> {
   const y = new YMapCtor();
   for (const [k, v] of Object.entries(obj)) {
     if (v !== undefined) y.set(k, v);
@@ -41,7 +41,7 @@ interface ToolCallEntry {
 }
 
 export class BoardToolRunner {
-  doc: Y.Doc;
+  doc: YTypes.Doc;
   objects: Map<string, Record<string, unknown>>;
   order: string[];
   actorId: string;
@@ -54,13 +54,13 @@ export class BoardToolRunner {
   deletedIds = new Set<string>();
   toolCalls: ToolCallEntry[] = [];
 
-  static fromYDoc(doc: Y.Doc, options: { viewportCenter?: unknown; actorId?: string; now?: () => number } = {}): BoardToolRunner {
+  static fromYDoc(doc: YTypes.Doc, options: { viewportCenter?: unknown; actorId?: string; now?: () => number } = {}): BoardToolRunner {
     const objectsMap = doc.getMap('objects');
     const zOrder = doc.getArray('zOrder');
 
     const objects = new Map<string, Record<string, unknown>>();
     for (const [id, yObj] of objectsMap.entries()) {
-      objects.set(id, yMapToObject(yObj as Y.Map<unknown>));
+      objects.set(id, yMapToObject(yObj as YTypes.Map<unknown>));
     }
 
     const order: string[] = [];
@@ -79,7 +79,7 @@ export class BoardToolRunner {
     });
   }
 
-  constructor({ doc, objects, order, viewportCenter, actorId, now }: { doc: Y.Doc; objects: Map<string, Record<string, unknown>>; order: string[]; viewportCenter?: unknown; actorId?: string; now?: () => number }) {
+  constructor({ doc, objects, order, viewportCenter, actorId, now }: { doc: YTypes.Doc; objects: Map<string, Record<string, unknown>>; order: string[]; viewportCenter?: unknown; actorId?: string; now?: () => number }) {
     this.doc = doc;
     this.objects = objects;
     this.order = order;
@@ -393,7 +393,7 @@ export class BoardToolRunner {
   applyToDoc(): { createdIds: string[]; updatedIds: string[]; deletedIds: string[]; toolCalls: ToolCallEntry[] } {
     const objectsMap = this.doc.getMap('objects');
     const zOrder = this.doc.getArray('zOrder');
-    const YMapCtor = objectsMap.constructor as new () => Y.Map<unknown>;
+    const YMapCtor = objectsMap.constructor as new () => YTypes.Map<unknown>;
 
     const createdIds = [...this.createdIds];
     const updatedIds = [...this.updatedIds].filter((id) => !this.createdIds.has(id));
