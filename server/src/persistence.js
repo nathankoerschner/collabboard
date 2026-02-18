@@ -10,6 +10,34 @@ export function getPersistence() {
 
   return {
     bindState: async (docName, doc) => {
+      // Register the update listener SYNCHRONOUSLY so no updates are missed
+      // while we load from the DB. We buffer updates that arrive during load
+      // and flush them once the DB state has been applied.
+      let loaded = false;
+      const pendingUpdates = [];
+
+      doc.on('update', async (update) => {
+        if (!loaded) {
+          pendingUpdates.push(Buffer.from(update));
+          return;
+        }
+        try {
+          await db.query(
+            'INSERT INTO board_updates (board_id, data) VALUES ($1, $2)',
+            [docName, Buffer.from(update)]
+          );
+
+          const count = (updateCounts.get(docName) || 0) + 1;
+          updateCounts.set(docName, count);
+
+          if (count >= COMPACT_THRESHOLD) {
+            await compact(docName, doc);
+          }
+        } catch (err) {
+          console.error(`Failed to persist update for ${docName}:`, err.message);
+        }
+      });
+
       try {
         // Load snapshot
         const { rows: snapRows } = await db.query(
@@ -32,28 +60,27 @@ export function getPersistence() {
 
         updateCounts.set(docName, updateRows.length);
 
-        // Listen for new updates
-        doc.on('update', async (update) => {
+        // Mark as loaded and flush any buffered updates
+        loaded = true;
+        for (const buf of pendingUpdates) {
           try {
             await db.query(
               'INSERT INTO board_updates (board_id, data) VALUES ($1, $2)',
-              [docName, Buffer.from(update)]
+              [docName, buf]
             );
-
             const count = (updateCounts.get(docName) || 0) + 1;
             updateCounts.set(docName, count);
-
-            if (count >= COMPACT_THRESHOLD) {
-              await compact(docName, doc);
-            }
           } catch (err) {
-            console.error(`Failed to persist update for ${docName}:`, err.message);
+            console.error(`Failed to persist buffered update for ${docName}:`, err.message);
           }
-        });
+        }
+        pendingUpdates.length = 0;
       } catch (err) {
         // Avoid crashing websocket handshake when DB is temporarily unavailable.
+        // Still mark as loaded so future updates are persisted if DB recovers.
         console.error(`Failed to bind persistence for ${docName}:`, err.message);
         updateCounts.set(docName, 0);
+        loaded = true;
       }
     },
 

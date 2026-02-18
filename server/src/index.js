@@ -3,7 +3,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { handleUpgrade } from './wsServer.js';
+import { handleUpgrade, initPersistence } from './wsServer.js';
 import { migrate, getPool } from './db.js';
 import { handleBoardRoutes } from './routes/boards.js';
 import { verifyToken } from './auth.js';
@@ -15,6 +15,9 @@ if (!isProductionRuntime) {
   dotenv.config();
 }
 const PORT = process.env.PORT || 3001;
+
+// Initialize Yjs persistence now that env vars are loaded
+initPersistence();
 
 const server = http.createServer(async (req, res) => {
   // CORS headers for dev

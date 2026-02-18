@@ -5,11 +5,13 @@ import { verifyToken } from './auth.js';
 
 const wss = new WebSocketServer({ noServer: true });
 
-// Set up persistence if database is available
-const persistence = getPersistence();
-if (persistence) {
-  setPersistence(persistence);
-  console.log('Yjs persistence enabled');
+// Persistence must be initialized lazily (after dotenv loads DATABASE_URL)
+export function initPersistence() {
+  const persistence = getPersistence();
+  if (persistence) {
+    setPersistence(persistence);
+    console.log('Yjs persistence enabled');
+  }
 }
 
 wss.on('connection', (ws, req, { docName }) => {
