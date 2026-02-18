@@ -3,6 +3,10 @@ import { Clerk } from '@clerk/clerk-js';
 let clerk: Clerk | null = null;
 
 async function resolvePublishableKey(): Promise<string | undefined> {
+  if (typeof window !== 'undefined' && window.localStorage.getItem('collabboard.e2e.noAuth') === '1') {
+    return undefined;
+  }
+
   try {
     const res = await fetch('/api/runtime-config');
     if (res.ok) {

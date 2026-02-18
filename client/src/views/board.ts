@@ -18,6 +18,10 @@ let aiSubmitting = false;
 declare global {
   interface Window {
     _boardKeyHandler?: ((e: KeyboardEvent) => void) | null;
+    __collabboardDebug?: {
+      getObjectCount: () => number;
+      getObjectIds: () => string[];
+    } | null;
   }
 }
 
@@ -122,6 +126,10 @@ export const boardView = {
         }
       },
     });
+    window.__collabboardDebug = {
+      getObjectCount: () => boardManager?.getObjectStore().getAll().length || 0,
+      getObjectIds: () => boardManager?.getObjectStore().getAll().map((obj) => obj.id) || [],
+    };
 
     cursorManager = new CursorManager(boardManager.getAwareness(), { name: userName });
 
@@ -252,5 +260,6 @@ export const boardView = {
     canvas = null;
     cursorManager = null;
     boardManager = null;
+    window.__collabboardDebug = null;
   },
 };

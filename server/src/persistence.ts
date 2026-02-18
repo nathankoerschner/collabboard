@@ -3,8 +3,10 @@ import type * as YTypes from 'yjs';
 import { getPool } from './db.js';
 
 const COMPACT_THRESHOLD = 100;
+const HYDRATION_ORIGIN = 'persistence:hydrate';
 const updateCounts = new Map<string, number>();
 const pendingCompactions = new Map<string, Promise<void>>();
+const pendingWrites = new Map<string, Promise<void>>();
 
 interface Persistence {
   bindState: (docName: string, doc: YTypes.Doc) => Promise<void>;
@@ -28,26 +30,32 @@ export function getPersistence(): Persistence | null {
       let loaded = false;
       const pendingUpdates: Buffer[] = [];
 
-      doc.on('update', async (update: Uint8Array) => {
+      doc.on('update', (update: Uint8Array, origin: unknown) => {
+        if (origin === HYDRATION_ORIGIN) return;
+
+        const buffered = Buffer.from(update);
         if (!loaded) {
-          pendingUpdates.push(Buffer.from(update));
+          pendingUpdates.push(buffered);
           return;
         }
-        try {
-          await db.query(
-            'INSERT INTO board_updates (board_id, data) VALUES ($1, $2)',
-            [docName, Buffer.from(update)]
-          );
 
-          const count = (updateCounts.get(docName) || 0) + 1;
-          updateCounts.set(docName, count);
+        void enqueueWrite(docName, async () => {
+          try {
+            await db.query(
+              'INSERT INTO board_updates (board_id, data) VALUES ($1, $2)',
+              [docName, buffered]
+            );
 
-          if (count >= COMPACT_THRESHOLD) {
-            await compact(docName, doc);
+            const count = (updateCounts.get(docName) || 0) + 1;
+            updateCounts.set(docName, count);
+
+            if (count >= COMPACT_THRESHOLD) {
+              await compact(docName, doc);
+            }
+          } catch (err: unknown) {
+            console.error(`Failed to persist update for ${docName}:`, (err as Error).message);
           }
-        } catch (err: unknown) {
-          console.error(`Failed to persist update for ${docName}:`, (err as Error).message);
-        }
+        });
       });
 
       try {
@@ -57,7 +65,7 @@ export function getPersistence(): Persistence | null {
         );
         if (snapRows.length > 0) {
           const snapshot = new Uint8Array(snapRows[0].data);
-          Y.applyUpdate(doc, snapshot);
+          Y.applyUpdate(doc, snapshot, HYDRATION_ORIGIN);
         }
 
         const { rows: updateRows } = await db.query(
@@ -65,25 +73,35 @@ export function getPersistence(): Persistence | null {
           [docName]
         );
         for (const row of updateRows) {
-          Y.applyUpdate(doc, new Uint8Array(row.data));
+          Y.applyUpdate(doc, new Uint8Array(row.data), HYDRATION_ORIGIN);
         }
 
         updateCounts.set(docName, updateRows.length);
 
         loaded = true;
-        for (const buf of pendingUpdates) {
-          try {
-            await db.query(
-              'INSERT INTO board_updates (board_id, data) VALUES ($1, $2)',
-              [docName, buf]
-            );
-            const count = (updateCounts.get(docName) || 0) + 1;
-            updateCounts.set(docName, count);
-          } catch (err: unknown) {
-            console.error(`Failed to persist buffered update for ${docName}:`, (err as Error).message);
+        if (pendingUpdates.length > 0) {
+          const buffered = pendingUpdates.splice(0, pendingUpdates.length);
+          await enqueueWrite(docName, async () => {
+            for (const buf of buffered) {
+              try {
+                await db.query(
+                  'INSERT INTO board_updates (board_id, data) VALUES ($1, $2)',
+                  [docName, buf]
+                );
+                const count = (updateCounts.get(docName) || 0) + 1;
+                updateCounts.set(docName, count);
+              } catch (err: unknown) {
+                console.error(`Failed to persist buffered update for ${docName}:`, (err as Error).message);
+              }
+            }
+          });
+          const count = updateCounts.get(docName) || 0;
+          if (count >= COMPACT_THRESHOLD) {
+            await enqueueWrite(docName, async () => {
+              await compact(docName, doc);
+            });
           }
         }
-        pendingUpdates.length = 0;
       } catch (err: unknown) {
         console.error(`Failed to bind persistence for ${docName}:`, (err as Error).message);
         updateCounts.set(docName, 0);
@@ -92,7 +110,9 @@ export function getPersistence(): Persistence | null {
     },
 
     writeState: async (docName, doc) => {
-      const compactionPromise = compact(docName, doc).catch((err: unknown) => {
+      const compactionPromise = enqueueWrite(docName, async () => {
+        await compact(docName, doc);
+      }).catch((err: unknown) => {
         console.error(`Failed to write state for ${docName}:`, (err as Error).message);
       });
       pendingCompactions.set(docName, compactionPromise);
@@ -126,4 +146,15 @@ async function compact(docName: string, doc: YTypes.Doc): Promise<void> {
   } finally {
     client.release();
   }
+}
+
+function enqueueWrite(docName: string, task: () => Promise<void>): Promise<void> {
+  const prev = pendingWrites.get(docName) || Promise.resolve();
+  const next = prev.catch(() => {}).then(task);
+  pendingWrites.set(docName, next);
+  return next.finally(() => {
+    if (pendingWrites.get(docName) === next) {
+      pendingWrites.delete(docName);
+    }
+  });
 }

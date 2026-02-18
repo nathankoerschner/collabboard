@@ -10,6 +10,7 @@
   "dependencies": {
     "@clerk/clerk-js": "^5.36.0",
     "nanoid": "^5.0.9",
+    "y-indexeddb": "^9.0.12",
     "y-websocket": "^2.0.4",
     "yjs": "^13.6.20"
   },

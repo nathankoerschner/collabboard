@@ -1,5 +1,6 @@
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
+import { IndexeddbPersistence } from 'y-indexeddb';
 import { ObjectStore } from './ObjectStore.js';
 
 interface BoardManagerOptions {
@@ -12,6 +13,7 @@ export class BoardManager {
   doc: Y.Doc;
   objectStore: ObjectStore;
   provider: WebsocketProvider;
+  persistence!: IndexeddbPersistence;
   awareness: WebsocketProvider['awareness'];
   onStatusChange: ((status: string) => void) | null;
 
@@ -22,6 +24,8 @@ export class BoardManager {
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${location.host}/ws`;
+
+    this.persistence = new IndexeddbPersistence(`collabboard-${boardId}`, this.doc);
 
     this.provider = new WebsocketProvider(wsUrl, boardId, this.doc, {
       params: options.token ? { token: options.token } : {},
@@ -49,6 +53,7 @@ export class BoardManager {
 
   destroy(): void {
     this.provider.disconnect();
+    this.persistence.destroy();
     this.doc.destroy();
   }
 }
