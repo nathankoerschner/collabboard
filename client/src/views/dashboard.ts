@@ -36,7 +36,6 @@ let activeRenameId: string | null = null;
 
 let boardListEl: HTMLElement | null = null;
 let dashboardActionsEl: HTMLElement | null = null;
-let searchBarEl: HTMLElement | null = null;
 let bulkBarEl: HTMLElement | null = null;
 
 // ─── Context Menu ───────────────────────────────────────────────────
@@ -181,7 +180,6 @@ function enterSelectMode() {
   rerender();
   renderActions();
   renderBulkBar();
-  if (searchBarEl) searchBarEl.style.display = 'none';
   if (boardListEl) boardListEl.style.paddingBottom = '4.5rem';
 }
 
@@ -191,7 +189,6 @@ function exitSelectMode() {
   rerender();
   renderActions();
   renderBulkBar();
-  if (searchBarEl) searchBarEl.style.display = '';
   if (boardListEl) boardListEl.style.paddingBottom = '';
 }
 
@@ -335,7 +332,6 @@ export const dashboardView = {
 
     boardListEl = document.getElementById('board-list');
     dashboardActionsEl = document.getElementById('dashboard-actions');
-    searchBarEl = document.getElementById('search-bar');
     bulkBarEl = document.getElementById('bulk-bar');
 
     renderActions();
@@ -405,7 +401,6 @@ export const dashboardView = {
     closeContextMenu();
     boardListEl = null;
     dashboardActionsEl = null;
-    searchBarEl = null;
     bulkBarEl = null;
   },
 };
