@@ -6,6 +6,7 @@ declare global {
   interface Window {
     __collabboardDebug?: {
       getObjectCount: () => number;
+      getObjectIds: () => string[];
     } | null;
   }
 }

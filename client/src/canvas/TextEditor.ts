@@ -9,15 +9,22 @@ export class TextEditor {
   toolbar: HTMLDivElement | null = null;
   editingId: string | null = null;
   editingType: string | null = null;
+  private readonly _onBeforeUnload: () => void;
+  private readonly _onPageHide: () => void;
 
   constructor(canvasEl: HTMLCanvasElement, camera: Camera, callbacks: TextEditorCallbacks) {
     this.canvasEl = canvasEl;
     this.camera = camera;
     this.callbacks = callbacks;
+    this._onBeforeUnload = this.flushActiveEdit.bind(this);
+    this._onPageHide = this.flushActiveEdit.bind(this);
+    window.addEventListener('beforeunload', this._onBeforeUnload);
+    window.addEventListener('pagehide', this._onPageHide);
   }
 
   startEditing(obj: BoardObject): void {
     if (!obj) return;
+    if (this.editingId === obj.id && this.input) return;
 
     this.stopEditing();
     this.editingId = obj.id;
@@ -31,6 +38,11 @@ export class TextEditor {
 
     input.addEventListener('input', () => {
       this.callbacks.onTextChange?.(this.editingId!, input.value);
+    });
+    input.addEventListener('beforeinput', (e) => {
+      const predicted = this._predictBeforeInputValue(input, e);
+      if (predicted == null) return;
+      this.callbacks.onTextChange?.(this.editingId!, predicted);
     });
 
     input.addEventListener('keydown', (e) => {
@@ -58,7 +70,8 @@ export class TextEditor {
     }
 
     input.focus();
-    input.select();
+    const length = input.value.length;
+    input.setSelectionRange(length, length);
   }
 
   stopEditing(): void {
@@ -169,6 +182,43 @@ export class TextEditor {
   }
 
   destroy(): void {
+    this.flushActiveEdit();
+    window.removeEventListener('beforeunload', this._onBeforeUnload);
+    window.removeEventListener('pagehide', this._onPageHide);
     this.stopEditing();
+  }
+
+  private flushActiveEdit(): void {
+    if (!this.input || !this.editingId) return;
+    this.callbacks.onTextChange?.(this.editingId, this.input.value);
+  }
+
+  private _predictBeforeInputValue(input: HTMLTextAreaElement, event: InputEvent): string | null {
+    const current = input.value;
+    const start = input.selectionStart ?? current.length;
+    const end = input.selectionEnd ?? start;
+    const replace = (text: string): string => `${current.slice(0, start)}${text}${current.slice(end)}`;
+
+    switch (event.inputType) {
+      case 'insertText':
+      case 'insertCompositionText':
+      case 'insertFromPaste':
+      case 'insertFromDrop':
+      case 'insertReplacementText':
+        return replace(event.data || '');
+      case 'insertLineBreak':
+      case 'insertParagraph':
+        return replace('\n');
+      case 'deleteContentBackward':
+        if (start !== end) return replace('');
+        if (start <= 0) return current;
+        return `${current.slice(0, start - 1)}${current.slice(end)}`;
+      case 'deleteContentForward':
+        if (start !== end) return replace('');
+        if (start >= current.length) return current;
+        return `${current.slice(0, start)}${current.slice(start + 1)}`;
+      default:
+        return null;
+    }
   }
 }

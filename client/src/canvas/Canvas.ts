@@ -53,7 +53,10 @@ export class Canvas {
         const obj = this.objectStore.createObject(type, x, y, w, h);
         this.selectedIds = [obj.id];
         if (type === 'sticky' || type === 'text') {
-          setTimeout(() => this.textEditor.startEditing(obj), 30);
+          setTimeout(() => {
+            if (this.textEditor.getEditingId()) return;
+            this.textEditor.startEditing(obj);
+          }, 30);
         }
         this.inputHandler.setSelection(this.selectedIds);
         return obj;
