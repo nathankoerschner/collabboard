@@ -1,15 +1,20 @@
-import { hitTestObjects, hitTestHandle } from './HitTest.js';
+import {
+  hitTestHandle,
+  hitTestObjects,
+  hitTestRotationHandle,
+} from './HitTest.js';
+import { getObjectAABB, getSelectionBounds } from './Geometry.js';
 
 export class InputHandler {
   constructor(canvas, camera, getObjects, callbacks) {
     this.canvasEl = canvas;
     this.camera = camera;
     this.getObjects = getObjects;
-    this.callbacks = callbacks; // { onSelect, onMove, onResize, onCreate, onDelete }
+    this.callbacks = callbacks;
 
-    this.tool = 'select'; // 'select' | 'sticky' | 'rectangle'
+    this.tool = 'select';
     this.dragging = false;
-    this.dragType = null; // 'pan' | 'move' | 'resize' | 'marquee'
+    this.dragType = null;
     this.dragStartX = 0;
     this.dragStartY = 0;
     this.dragObjStartX = 0;
@@ -17,11 +22,14 @@ export class InputHandler {
     this.dragObjStartW = 0;
     this.dragObjStartH = 0;
     this.resizeHandle = null;
-    this.selectedId = null;
     this.selectedIds = [];
     this.spaceHeld = false;
-    this.marqueeRect = null; // { x, y, width, height } in world coords
-    this.marqueeHoveredIds = []; // IDs of objects currently intersecting the marquee
+    this.marqueeRect = null;
+    this.marqueeHoveredIds = [];
+    this.rotationPivot = null;
+    this.rotationStartAngle = 0;
+    this.rotationAppliedDelta = 0;
+    this.activeConnectorId = null;
 
     this._onMouseDown = this._onMouseDown.bind(this);
     this._onMouseMove = this._onMouseMove.bind(this);
@@ -43,8 +51,8 @@ export class InputHandler {
     this.canvasEl.style.cursor = tool === 'select' ? 'default' : 'crosshair';
   }
 
-  getSelectedId() {
-    return this.selectedId;
+  setSelection(ids) {
+    this.selectedIds = [...ids];
   }
 
   getMarqueeRect() {
@@ -55,43 +63,67 @@ export class InputHandler {
     return this.marqueeHoveredIds;
   }
 
-  _onMouseDown(e) {
+  _eventWorld(e) {
     const rect = this.canvasEl.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
-    const { x: wx, y: wy } = this.camera.screenToWorld(sx, sy);
+    const world = this.camera.screenToWorld(sx, sy);
+    return { sx, sy, wx: world.x, wy: world.y };
+  }
 
-    if (this.tool === 'sticky') {
-      this.callbacks.onCreate?.('sticky', wx - 75, wy - 75, 150, 150);
-      this.setTool('select');
+  _onMouseDown(e) {
+    const { sx, sy, wx, wy } = this._eventWorld(e);
+
+    if (this.tool !== 'select' && this.tool !== 'connector') {
+      const created = this._createForTool(wx, wy);
+      if (created) {
+        this._setSelection([created.id]);
+        this.callbacks.onToolAutoReset?.('select');
+      }
       return;
     }
 
-    if (this.tool === 'rectangle') {
-      this.callbacks.onCreate?.('rectangle', wx - 100, wy - 60, 200, 120);
-      this.setTool('select');
+    if (this.tool === 'connector') {
+      const conn = this.callbacks.onStartConnector?.(wx, wy);
+      if (conn) {
+        this.activeConnectorId = conn.id;
+        this.dragging = true;
+        this.dragType = 'connector-end';
+        this._setSelection([conn.id]);
+      }
       return;
     }
 
-    // Select tool
     const objects = this.getObjects();
+    const selected = objects.filter((o) => this.selectedIds.includes(o.id));
+    const selectionBounds = selected.length ? getSelectionBounds(selected) : null;
 
-    // Check resize handles on selected object first
-    if (this.selectedId) {
-      const selObj = objects.find(o => o.id === this.selectedId);
-      if (selObj) {
-        const handleScale = 8 / this.camera.scale;
-        const handle = hitTestHandle(wx, wy, { ...selObj }, handleScale);
+    if (selectionBounds && hitTestRotationHandle(wx, wy, selectionBounds, this.camera.scale)) {
+      this.dragging = true;
+      this.dragType = 'rotate';
+      this.rotationPivot = {
+        x: selectionBounds.x + selectionBounds.width / 2,
+        y: selectionBounds.y + selectionBounds.height / 2,
+      };
+      this.rotationStartAngle = Math.atan2(wy - this.rotationPivot.y, wx - this.rotationPivot.x);
+      this.rotationAppliedDelta = 0;
+      return;
+    }
+
+    if (this.selectedIds.length === 1) {
+      const sel = objects.find((o) => o.id === this.selectedIds[0]);
+      if (sel && sel.type !== 'connector') {
+        const handle = hitTestHandle(wx, wy, sel, this.camera.scale);
         if (handle) {
           this.dragging = true;
           this.dragType = 'resize';
           this.resizeHandle = handle;
           this.dragStartX = wx;
           this.dragStartY = wy;
-          this.dragObjStartX = selObj.x;
-          this.dragObjStartY = selObj.y;
-          this.dragObjStartW = selObj.width;
-          this.dragObjStartH = selObj.height;
+          this.dragObjStartX = sel.x;
+          this.dragObjStartY = sel.y;
+          this.dragObjStartW = sel.width;
+          this.dragObjStartH = sel.height;
           return;
         }
       }
@@ -99,41 +131,68 @@ export class InputHandler {
 
     const hit = hitTestObjects(wx, wy, objects);
     if (hit) {
-      this.selectedId = hit.id;
-      this.selectedIds = [hit.id];
-      this.callbacks.onSelect?.(hit.id);
-      this.dragging = true;
-      this.dragType = 'move';
-      this.dragStartX = wx;
-      this.dragStartY = wy;
-      this.dragObjStartX = hit.x;
-      this.dragObjStartY = hit.y;
-    } else if (this.spaceHeld || e.button === 1) {
-      // Space+drag or middle-click → pan
+      if (hit.object.type === 'frame' && hit.area === 'inside') {
+        this._beginEmptyDrag(e, sx, sy, wx, wy);
+        return;
+      }
+
+      const hitId = hit.object.id;
+      const alreadySelected = this.selectedIds.includes(hitId);
+      if (e.shiftKey) {
+        if (alreadySelected) {
+          this._setSelection(this.selectedIds.filter((id) => id !== hitId));
+        } else {
+          this._setSelection([...this.selectedIds, hitId]);
+        }
+      } else if (!alreadySelected) {
+        this._setSelection([hitId]);
+      }
+
+      this.callbacks.onBringToFront?.(hitId);
+
+      if (this.selectedIds.includes(hitId)) {
+        this.dragging = true;
+        this.dragType = 'move';
+        this.dragStartX = wx;
+        this.dragStartY = wy;
+      }
+      return;
+    }
+
+    this._beginEmptyDrag(e, sx, sy, wx, wy);
+  }
+
+  _createForTool(wx, wy) {
+    if (this.tool === 'sticky') return this.callbacks.onCreate?.('sticky', wx - 75, wy - 75, 150, 150);
+    if (this.tool === 'rectangle') return this.callbacks.onCreate?.('rectangle', wx - 100, wy - 60, 200, 120);
+    if (this.tool === 'ellipse') return this.callbacks.onCreate?.('ellipse', wx - 100, wy - 60, 200, 120);
+    if (this.tool === 'text') return this.callbacks.onCreate?.('text', wx - 90, wy - 24, 180, 48);
+    if (this.tool === 'frame') return this.callbacks.onCreate?.('frame', wx - 180, wy - 120, 360, 240);
+    return null;
+  }
+
+  _beginEmptyDrag(e, sx, sy, wx, wy) {
+    if (this.spaceHeld || e.button === 1) {
       this.dragging = true;
       this.dragType = 'pan';
       this.dragStartX = sx;
       this.dragStartY = sy;
-    } else {
-      // Marquee select on empty space
-      this.selectedId = null;
-      this.selectedIds = [];
-      this.callbacks.onSelect?.(null);
-      this.dragging = true;
-      this.dragType = 'marquee';
-      this.dragStartX = wx;
-      this.dragStartY = wy;
-      this.marqueeRect = { x: wx, y: wy, width: 0, height: 0 };
+      return;
     }
+
+    if (!e.shiftKey) {
+      this._setSelection([]);
+    }
+
+    this.dragging = true;
+    this.dragType = 'marquee';
+    this.dragStartX = wx;
+    this.dragStartY = wy;
+    this.marqueeRect = { x: wx, y: wy, width: 0, height: 0 };
   }
 
   _onMouseMove(e) {
-    const rect = this.canvasEl.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
-    const { x: wx, y: wy } = this.camera.screenToWorld(sx, sy);
-
-    // Emit cursor position for awareness
+    const { sx, sy, wx, wy } = this._eventWorld(e);
     this.callbacks.onCursorMove?.(wx, wy);
 
     if (!this.dragging) return;
@@ -144,53 +203,92 @@ export class InputHandler {
       this.camera.pan(dx, dy);
       this.dragStartX = sx;
       this.dragStartY = sy;
-    } else if (this.dragType === 'move' && this.selectedId) {
+      return;
+    }
+
+    if (this.dragType === 'move' && this.selectedIds.length) {
       const dx = wx - this.dragStartX;
       const dy = wy - this.dragStartY;
-      this.callbacks.onMove?.(this.selectedId, this.dragObjStartX + dx, this.dragObjStartY + dy);
-    } else if (this.dragType === 'resize' && this.selectedId) {
+      this.callbacks.onMoveSelection?.(this.selectedIds, dx, dy);
+      this.dragStartX = wx;
+      this.dragStartY = wy;
+      return;
+    }
+
+    if (this.dragType === 'resize' && this.selectedIds.length === 1) {
       this._handleResize(wx, wy);
-    } else if (this.dragType === 'marquee') {
+      return;
+    }
+
+    if (this.dragType === 'rotate' && this.selectedIds.length) {
+      const angle = Math.atan2(wy - this.rotationPivot.y, wx - this.rotationPivot.x);
+      const totalDelta = ((angle - this.rotationStartAngle) * 180) / Math.PI;
+      const incremental = totalDelta - this.rotationAppliedDelta;
+      if (incremental) {
+        this.callbacks.onRotateSelection?.(this.selectedIds, incremental, this.rotationPivot);
+        this.rotationAppliedDelta = totalDelta;
+      }
+      return;
+    }
+
+    if (this.dragType === 'connector-end' && this.activeConnectorId) {
+      const attach = this.callbacks.onResolveAttach?.(wx, wy, this.activeConnectorId);
+      if (attach) {
+        this.callbacks.onConnectorEndpoint?.(this.activeConnectorId, 'end', {
+          objectId: attach.object.id,
+          port: attach.port.name,
+        });
+      } else {
+        this.callbacks.onConnectorEndpoint?.(this.activeConnectorId, 'end', {
+          point: { x: wx, y: wy },
+        });
+      }
+      return;
+    }
+
+    if (this.dragType === 'marquee') {
       const mx = Math.min(this.dragStartX, wx);
       const my = Math.min(this.dragStartY, wy);
       const mw = Math.abs(wx - this.dragStartX);
       const mh = Math.abs(wy - this.dragStartY);
       this.marqueeRect = { x: mx, y: my, width: mw, height: mh };
 
-      // Live preview: compute which objects the marquee currently intersects
       if (mw > 2 || mh > 2) {
         const objects = this.getObjects();
         this.marqueeHoveredIds = objects
-          .filter(obj =>
-            obj.x + obj.width >= mx && obj.x <= mx + mw &&
-            obj.y + obj.height >= my && obj.y <= my + mh
-          )
-          .map(o => o.id);
+          .filter((obj) => {
+            if (obj.type === 'connector') return false;
+            const box = getObjectAABB(obj);
+            return box.x >= mx && box.y >= my && box.x + box.width <= mx + mw && box.y + box.height <= my + mh;
+          })
+          .map((o) => o.id);
       } else {
         this.marqueeHoveredIds = [];
       }
     }
   }
 
-  _onMouseUp() {
+  _onMouseUp(e) {
     if (this.dragType === 'marquee' && this.marqueeRect) {
-      const { x, y, width, height } = this.marqueeRect;
-      if (width > 2 || height > 2) {
-        const objects = this.getObjects();
-        const selected = objects.filter(obj =>
-          obj.x + obj.width >= x && obj.x <= x + width &&
-          obj.y + obj.height >= y && obj.y <= y + height
-        );
-        if (selected.length > 0) {
-          const ids = selected.map(o => o.id);
-          this.selectedId = ids.length === 1 ? ids[0] : null;
-          this.selectedIds = ids;
-          this.callbacks.onMarqueeSelect?.(ids);
+      const ids = this.marqueeHoveredIds;
+      if (ids.length) {
+        if (e.shiftKey) {
+          const merged = new Set([...this.selectedIds, ...ids]);
+          this._setSelection([...merged]);
+        } else {
+          this._setSelection(ids);
         }
       }
       this.marqueeRect = null;
       this.marqueeHoveredIds = [];
     }
+
+    if (this.dragType === 'connector-end' && this.activeConnectorId) {
+      this.callbacks.onFinishConnector?.(this.activeConnectorId);
+      this.activeConnectorId = null;
+      this.callbacks.onToolAutoReset?.('select');
+    }
+
     this.dragging = false;
     this.dragType = null;
     this.resizeHandle = null;
@@ -203,32 +301,64 @@ export class InputHandler {
     const cy = e.clientY - rect.top;
 
     if (e.ctrlKey) {
-      // Pinch-to-zoom on trackpad (browser sets ctrlKey for pinch gestures)
-      // or Ctrl+scroll on mouse wheel
-      const factor = e.deltaY > 0 ? 0.95 : 1.05;
-      this.camera.zoom(factor, cx, cy);
+      this.camera.zoom(e.deltaY > 0 ? 0.95 : 1.05, cx, cy);
     } else {
-      // Two-finger scroll on trackpad → pan
-      // Mouse scroll wheel without Ctrl → also pan
       this.camera.pan(-e.deltaX, -e.deltaY);
     }
   }
 
   _onKeyDown(e) {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+
+    const key = e.key.toLowerCase();
 
     if (e.key === ' ') {
       e.preventDefault();
       this.spaceHeld = true;
       this.canvasEl.style.cursor = 'grab';
+      return;
     }
 
-    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedIds.length > 0) {
-      for (const id of this.selectedIds) {
-        this.callbacks.onDelete?.(id);
-      }
-      this.selectedId = null;
-      this.selectedIds = [];
+    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedIds.length) {
+      this.callbacks.onDeleteSelection?.(this.selectedIds);
+      this._setSelection([]);
+      return;
+    }
+
+    if ((e.metaKey || e.ctrlKey) && key === 'd') {
+      e.preventDefault();
+      this.callbacks.onDuplicateSelection?.(this.selectedIds);
+      return;
+    }
+
+    if ((e.metaKey || e.ctrlKey) && key === 'c') {
+      e.preventDefault();
+      this.callbacks.onCopySelection?.(this.selectedIds);
+      return;
+    }
+
+    if ((e.metaKey || e.ctrlKey) && key === 'v') {
+      e.preventDefault();
+      this.callbacks.onPaste?.();
+      return;
+    }
+
+    if (key === 'enter' && this.selectedIds.length === 1) {
+      this.callbacks.onEditObject?.(this.selectedIds[0]);
+      return;
+    }
+
+    const keyMap = {
+      v: 'select',
+      s: 'sticky',
+      r: 'rectangle',
+      e: 'ellipse',
+      t: 'text',
+      f: 'frame',
+      c: 'connector',
+    };
+    if (!e.metaKey && !e.ctrlKey && keyMap[key]) {
+      this.callbacks.onToolShortcut?.(keyMap[key]);
     }
   }
 
@@ -242,21 +372,32 @@ export class InputHandler {
   _handleResize(wx, wy) {
     const dx = wx - this.dragStartX;
     const dy = wy - this.dragStartY;
-    let { x, y, width, height } = {
-      x: this.dragObjStartX,
-      y: this.dragObjStartY,
-      width: this.dragObjStartW,
-      height: this.dragObjStartH,
-    };
-    const MIN = 50;
+    let x = this.dragObjStartX;
+    let y = this.dragObjStartY;
+    let width = this.dragObjStartW;
+    let height = this.dragObjStartH;
+    const min = 24;
     const h = this.resizeHandle;
 
-    if (h.includes('e')) width = Math.max(MIN, width + dx);
-    if (h.includes('w')) { x = x + dx; width = Math.max(MIN, width - dx); }
-    if (h.includes('s')) height = Math.max(MIN, height + dy);
-    if (h.includes('n')) { y = y + dy; height = Math.max(MIN, height - dy); }
+    if (h.includes('e')) width = Math.max(min, width + dx);
+    if (h.includes('w')) {
+      x = x + dx;
+      width = Math.max(min, width - dx);
+      if (width === min) x = this.dragObjStartX + (this.dragObjStartW - min);
+    }
+    if (h.includes('s')) height = Math.max(min, height + dy);
+    if (h.includes('n')) {
+      y = y + dy;
+      height = Math.max(min, height - dy);
+      if (height === min) y = this.dragObjStartY + (this.dragObjStartH - min);
+    }
 
-    this.callbacks.onResize?.(this.selectedId, x, y, width, height);
+    this.callbacks.onResizeObject?.(this.selectedIds[0], x, y, width, height);
+  }
+
+  _setSelection(ids) {
+    this.selectedIds = [...new Set(ids)];
+    this.callbacks.onSelectionChange?.(this.selectedIds);
   }
 
   destroy() {

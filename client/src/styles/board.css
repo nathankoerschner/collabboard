@@ -1,7 +1,7 @@
 .board-view {
   position: relative;
   width: 100%;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -11,10 +11,9 @@
   height: 100%;
 }
 
-/* Toolbar */
 .board-toolbar {
   position: absolute;
-  top: 16px;
+  top: calc(16px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -30,8 +29,8 @@
 
 .back-to-dashboard {
   position: absolute;
-  top: 16px;
-  left: 16px;
+  top: calc(16px + env(safe-area-inset-top));
+  left: calc(16px + env(safe-area-inset-left));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -58,16 +57,41 @@
 }
 
 .toolbar-btn {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: none;
   border-radius: 50%;
   background: transparent;
   color: var(--color-muted);
+  cursor: pointer;
   transition: all 0.15s ease;
+}
+
+.toolbar-btn[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  padding: 4px 8px;
+  background: var(--color-text, #1e293b);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 500;
+  white-space: nowrap;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.toolbar-btn[data-tooltip]:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .toolbar-btn:hover {
@@ -89,7 +113,6 @@
   user-select: none;
 }
 
-/* Status banner */
 .board-status {
   position: absolute;
   top: 0;
@@ -112,11 +135,10 @@
   max-height: 40px;
 }
 
-/* Presence panel */
 .presence-panel {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: calc(16px + env(safe-area-inset-top));
+  right: calc(16px + env(safe-area-inset-right));
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -161,4 +183,46 @@
 .presence-empty {
   font-size: 0.8rem;
   color: var(--color-muted);
+}
+
+.text-editor-overlay {
+  border: none;
+  outline: none;
+}
+
+.text-editor-toolbar {
+  position: absolute;
+  z-index: 41;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: var(--shadow-sm);
+}
+
+.text-editor-toolbar-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.text-editor-toolbar-btn.active {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.text-editor-toolbar-select {
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  background: #fff;
 }
