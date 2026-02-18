@@ -289,7 +289,7 @@
 .presence-panel {
   position: absolute;
   top: calc(16px + env(safe-area-inset-top));
-  right: calc(68px + env(safe-area-inset-right));
+  right: calc(72px + env(safe-area-inset-right));
   display: flex;
   flex-direction: column;
   gap: 6px;

@@ -37,38 +37,51 @@ export function openBoardOptionsModal(config: BoardOptionsConfig): void {
     if (e.key === 'Escape') close();
   }
 
-  function render() {
-    overlay.innerHTML = `
-      <div class="modal-card">
-        <div class="board-options-header">
-          <h2>Board Options</h2>
-          <button class="board-options-close" aria-label="Close">&times;</button>
-        </div>
-        <div class="board-options-tabs">
-          ${tabs.map(t => `
-            <button class="board-options-tab ${t.id === activeTab ? 'active' : ''}" data-tab="${t.id}">${t.label}</button>
-          `).join('')}
-        </div>
-        <div class="board-options-content" id="board-options-tab-content"></div>
+  // Build the modal shell once
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <div class="board-options-header">
+        <h2>Board Options</h2>
+        <button class="board-options-close" aria-label="Close">&times;</button>
       </div>
-    `;
+      <div class="board-options-tabs">
+        ${tabs.map(t => `
+          <button class="board-options-tab ${t.id === activeTab ? 'active' : ''}" data-tab="${t.id}">${t.label}</button>
+        `).join('')}
+      </div>
+      <div class="board-options-content" id="board-options-tab-content"></div>
+    </div>
+  `;
 
-    overlay.querySelector('.board-options-close')!.addEventListener('click', close);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) close();
+  // Wire up stable shell events (once)
+  overlay.querySelector('.board-options-close')!.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+
+  const tabBtns = overlay.querySelectorAll('.board-options-tab');
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabId = (btn as HTMLElement).dataset.tab as TabId;
+      if (tabId === activeTab) return;
+      activeTab = tabId;
+      switchTab();
+    });
+  });
+
+  const contentEl = overlay.querySelector('#board-options-tab-content') as HTMLElement;
+
+  function switchTab() {
+    // Update active class on tab buttons
+    tabBtns.forEach(btn => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.tab === activeTab);
     });
 
-    overlay.querySelectorAll('.board-options-tab').forEach(btn => {
-      btn.addEventListener('click', () => {
-        activeTab = (btn as HTMLElement).dataset.tab as TabId;
-        render();
-      });
-    });
-
-    const content = overlay.querySelector('#board-options-tab-content')!;
-    if (activeTab === 'general') renderGeneralTab(content as HTMLElement);
-    else if (activeTab === 'sharing') renderSharingTab(content as HTMLElement);
-    else if (activeTab === 'danger') renderDangerTab(content as HTMLElement);
+    // Render only the content pane
+    contentEl.innerHTML = '';
+    if (activeTab === 'general') renderGeneralTab(contentEl);
+    else if (activeTab === 'sharing') renderSharingTab(contentEl);
+    else if (activeTab === 'danger') renderDangerTab(contentEl);
   }
 
   function renderGeneralTab(container: HTMLElement) {
@@ -156,5 +169,5 @@ export function openBoardOptionsModal(config: BoardOptionsConfig): void {
 
   document.addEventListener('keydown', onKey);
   document.body.appendChild(overlay);
-  render();
+  switchTab(); // render initial tab content
 }
