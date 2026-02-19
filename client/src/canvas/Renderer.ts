@@ -194,20 +194,27 @@ export class Renderer {
     ctx.save();
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 2;
+
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    const arrowSize = 10;
+
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
-    ctx.lineTo(end.x, end.y);
+    if (conn.style === 'arrow') {
+      // Stop the line at the arrowhead base so it doesn't poke through
+      ctx.lineTo(end.x - ux * arrowSize, end.y - uy * arrowSize);
+    } else {
+      ctx.lineTo(end.x, end.y);
+    }
     ctx.stroke();
 
     if (conn.style === 'arrow') {
-      const dx = end.x - start.x;
-      const dy = end.y - start.y;
-      const len = Math.sqrt(dx * dx + dy * dy) || 1;
-      const ux = dx / len;
-      const uy = dy / len;
-      const size = 10;
-      const bx = end.x - ux * size;
-      const by = end.y - uy * size;
+      const bx = end.x - ux * arrowSize;
+      const by = end.y - uy * arrowSize;
       ctx.fillStyle = '#334155';
       ctx.beginPath();
       ctx.moveTo(end.x, end.y);
@@ -217,23 +224,6 @@ export class Renderer {
       ctx.fill();
     }
 
-    if (!conn.fromId && start) {
-      ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = '#334155';
-      ctx.beginPath();
-      ctx.arc(start.x, start.y, 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    if (!conn.toId && end) {
-      ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = '#334155';
-      ctx.beginPath();
-      ctx.arc(end.x, end.y, 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
 
     ctx.restore();
   }
@@ -273,21 +263,6 @@ export class Renderer {
   drawSelectionHandles(ctx: CanvasRenderingContext2D, obj: BoardObject, camera: Camera, objectsById: Map<string, BoardObject>): void {
     if (obj.type === 'connector') {
       this._drawConnectorSelectionHighlight(ctx, obj, camera, objectsById);
-      // Draw endpoint handles
-      const { start, end } = getConnectorEndpoints(obj, objectsById);
-      if (!start || !end) return;
-      ctx.save();
-      const size = HANDLE_SIZE / camera.scale;
-      for (const pt of [start, end]) {
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = '#2563eb';
-        ctx.lineWidth = 1.5 / camera.scale;
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, size / 2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
-      ctx.restore();
       return;
     }
 
@@ -319,15 +294,42 @@ export class Renderer {
   }
 
   _drawConnectorSelectionHighlight(ctx: CanvasRenderingContext2D, obj: BoardObject, camera: Camera, objectsById: Map<string, BoardObject>): void {
+    const conn = obj as import('../types.js').Connector;
     const { start, end } = getConnectorEndpoints(obj, objectsById);
     if (!start || !end) return;
+
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    const arrowSize = 10;
+    const pad = 2 / camera.scale; // extra padding so highlight covers the base connector
+
     ctx.save();
     ctx.strokeStyle = '#2563eb';
     ctx.lineWidth = 4 / camera.scale;
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
-    ctx.lineTo(end.x, end.y);
+    if (conn.style === 'arrow') {
+      ctx.lineTo(end.x - ux * arrowSize, end.y - uy * arrowSize);
+    } else {
+      ctx.lineTo(end.x, end.y);
+    }
     ctx.stroke();
+
+    if (conn.style === 'arrow') {
+      const bx = end.x - ux * (arrowSize + pad);
+      const by = end.y - uy * (arrowSize + pad);
+      ctx.fillStyle = '#2563eb';
+      ctx.beginPath();
+      ctx.moveTo(end.x + ux * pad, end.y + uy * pad);
+      ctx.lineTo(bx - uy * (5 + pad), by + ux * (5 + pad));
+      ctx.lineTo(bx + uy * (5 + pad), by - ux * (5 + pad));
+      ctx.closePath();
+      ctx.fill();
+    }
+
     ctx.restore();
   }
 

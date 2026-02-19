@@ -427,6 +427,21 @@ export class InputHandler {
     }
 
     if (this.dragType === 'connector-end' && this.activeConnectorId) {
+      // Delete the connector if it's too short (click without meaningful drag)
+      const objects = this.getObjects();
+      const connObj = objects.find((o) => o.id === this.activeConnectorId);
+      if (connObj) {
+        const objectsById = new Map(objects.map((o) => [o.id, o]));
+        const { start, end } = getConnectorEndpoints(connObj, objectsById);
+        if (start && end) {
+          const cdx = end.x - start.x;
+          const cdy = end.y - start.y;
+          const dist = Math.sqrt(cdx * cdx + cdy * cdy);
+          if (dist < HITBOX_RING_PX / this.camera.scale) {
+            this.callbacks.onDeleteSelection?.([this.activeConnectorId]);
+          }
+        }
+      }
       this.callbacks.onFinishConnector?.(this.activeConnectorId);
       this.activeConnectorId = null;
       this.connectorSourceObjectId = null;
