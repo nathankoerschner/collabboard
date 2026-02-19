@@ -128,7 +128,7 @@ export class SelectionToolbar {
     const PALETTE: Record<string, string> = {
       yellow: '#fef08a', blue: '#bfdbfe', green: '#bbf7d0', pink: '#fecdd3',
       purple: '#e9d5ff', orange: '#fed7aa', red: '#fecaca', teal: '#99f6e4',
-      gray: '#e5e7eb', white: '#ffffff',
+      black: '#000000',
     };
     return PALETTE[color] || color;
   }

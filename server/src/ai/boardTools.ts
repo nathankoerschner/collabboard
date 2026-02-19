@@ -241,7 +241,7 @@ export class BoardToolRunner {
     const obj = {
       ...this._createBase(type, placement.x, placement.y, args.width as number, args.height as number),
       color: sanitizeColor(args.color, defaults.color),
-      strokeColor: 'gray',
+      strokeColor: '#64748b',
     };
 
     this._setObject(obj, { created: true });

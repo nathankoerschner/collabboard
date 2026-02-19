@@ -23,7 +23,8 @@ export const OBJECT_TYPES = ['sticky', 'rectangle', 'ellipse', 'text', 'connecto
 export const SHAPE_TYPES = ['rectangle', 'ellipse'] as const;
 export const CONNECTOR_STYLES = ['line', 'arrow'] as const;
 export const TEXT_SIZES = ['small', 'medium', 'large'] as const;
-export const PALETTE_NAMES = ['yellow', 'blue', 'green', 'pink', 'purple', 'orange', 'red', 'teal', 'gray', 'white'] as const;
+export const STICKY_COLORS = ['yellow', 'blue', 'green', 'pink', 'purple', 'orange', 'red', 'teal'] as const;
+export const PALETTE_NAMES = [...STICKY_COLORS, 'black'] as const;
 
 export const DEFAULT_VIEWPORT_CENTER = { x: 0, y: 0 };
 
@@ -54,9 +55,14 @@ export function normalizeAngle(value: unknown): number {
   return out > 180 ? out - 360 : out;
 }
 
-export function sanitizeColor(value: unknown, fallback = 'gray'): string {
+export function sanitizeColor(value: unknown, fallback = 'black'): string {
   if (typeof value !== 'string') return fallback;
   return (PALETTE_NAMES as readonly string[]).includes(value) ? value : fallback;
+}
+
+export function sanitizeStickyColor(value: unknown, fallback = 'yellow'): string {
+  if (typeof value !== 'string') return fallback;
+  return (STICKY_COLORS as readonly string[]).includes(value) ? value : fallback;
 }
 
 export function clampText(value: unknown, max = 2000, fallback = ''): string {
@@ -78,7 +84,7 @@ export function validateToolArgs(toolName: string, rawArgs: unknown = {}): Recor
       y: typeof args.y === 'number' ? clampNumber(args.y, -100000, 100000, 0) : null,
       width: clampNumber(args.width, 24, 2000, 150),
       height: clampNumber(args.height, 24, 2000, 150),
-      color: sanitizeColor(args.color, 'yellow'),
+      color: sanitizeStickyColor(args.color, 'yellow'),
     };
   }
 
@@ -210,7 +216,7 @@ export function toToolDefinitions(): ChatCompletionTool[] {
             y: { type: 'number' },
             width: { type: 'number' },
             height: { type: 'number' },
-            color: { type: 'string', enum: [...PALETTE_NAMES] },
+            color: { type: 'string', enum: [...STICKY_COLORS] },
           },
           required: ['text'],
           additionalProperties: false,
@@ -441,6 +447,7 @@ export function toToolDefinitions(): ChatCompletionTool[] {
 }
 
 const paletteEnum = z.enum([...PALETTE_NAMES] as [string, ...string[]]);
+const stickyColorEnum = z.enum([...STICKY_COLORS] as [string, ...string[]]);
 
 const langChainSchemas: Record<string, { description: string; schema: z.ZodObject<z.ZodRawShape> }> = {
   createStickyNote: {
@@ -451,7 +458,7 @@ const langChainSchemas: Record<string, { description: string; schema: z.ZodObjec
       y: z.number().optional().describe('Y coordinate'),
       width: z.number().optional().describe('Width'),
       height: z.number().optional().describe('Height'),
-      color: paletteEnum.optional().describe('Color'),
+      color: stickyColorEnum.optional().describe('Color'),
     }),
   },
   createShape: {
