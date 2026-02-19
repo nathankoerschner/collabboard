@@ -65,7 +65,7 @@ export function getObjectAABB(obj: BoardObject): Bounds {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
-export function getSelectionBounds(objects: BoardObject[]): Bounds | null {
+export function getSelectionBounds(objects: BoardObject[], objectsById?: Map<string, BoardObject>): Bounds | null {
   if (!objects.length) return null;
 
   let minX = Infinity;
@@ -74,6 +74,16 @@ export function getSelectionBounds(objects: BoardObject[]): Bounds | null {
   let maxY = -Infinity;
 
   for (const obj of objects) {
+    if (obj.type === 'connector' && objectsById) {
+      const { start, end } = getConnectorEndpoints(obj, objectsById);
+      if (start && end) {
+        minX = Math.min(minX, start.x, end.x);
+        minY = Math.min(minY, start.y, end.y);
+        maxX = Math.max(maxX, start.x, end.x);
+        maxY = Math.max(maxY, start.y, end.y);
+      }
+      continue;
+    }
     const box = getObjectAABB(obj);
     minX = Math.min(minX, box.x);
     minY = Math.min(minY, box.y);

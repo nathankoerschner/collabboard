@@ -7,8 +7,8 @@ export class Camera {
   readonly minScale = 0.1;
   readonly maxScale = 5.0;
 
-  applyTransform(ctx: CanvasRenderingContext2D): void {
-    ctx.setTransform(this.scale, 0, 0, this.scale, this.offsetX, this.offsetY);
+  applyTransform(ctx: CanvasRenderingContext2D, dpr = 1): void {
+    ctx.setTransform(this.scale * dpr, 0, 0, this.scale * dpr, this.offsetX * dpr, this.offsetY * dpr);
   }
 
   screenToWorld(sx: number, sy: number): Point {

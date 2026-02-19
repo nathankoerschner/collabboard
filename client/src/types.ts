@@ -183,6 +183,7 @@ export interface InputHandlerCallbacks {
 export interface TextEditorCallbacks {
   onTextChange?: (id: string, text: string) => void;
   onTextStyleChange?: (id: string, patch: Partial<TextStyle>) => void;
+  onResize?: (id: string, width: number, height: number) => void;
 }
 
 // ── Palette ──

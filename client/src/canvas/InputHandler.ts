@@ -4,7 +4,7 @@ import {
   hitTestObjects,
   hitTestRotationHandle,
 } from './HitTest.js';
-import { getObjectAABB, getSelectionBounds } from './Geometry.js';
+import { getConnectorEndpoints, getObjectAABB, getSelectionBounds } from './Geometry.js';
 import { Camera } from './Camera.js';
 
 type DragType = 'pan' | 'move' | 'resize' | 'rotate' | 'marquee' | 'connector-end' | null;
@@ -271,11 +271,20 @@ export class InputHandler {
 
       if (mw > 2 || mh > 2) {
         const objects = this.getObjects();
+        const objectsById = new Map(objects.map((o) => [o.id, o]));
         this.marqueeHoveredIds = objects
           .filter((obj) => {
-            if (obj.type === 'connector') return false;
+            if (obj.type === 'connector') {
+              const { start, end } = getConnectorEndpoints(obj, objectsById);
+              if (!start || !end) return false;
+              const cx = Math.min(start.x, end.x);
+              const cy = Math.min(start.y, end.y);
+              const cw = Math.abs(end.x - start.x);
+              const ch = Math.abs(end.y - start.y);
+              return cx < mx + mw && cx + cw > mx && cy < my + mh && cy + ch > my;
+            }
             const box = getObjectAABB(obj);
-            return box.x >= mx && box.y >= my && box.x + box.width <= mx + mw && box.y + box.height <= my + mh;
+            return box.x < mx + mw && box.x + box.width > mx && box.y < my + mh && box.y + box.height > my;
           })
           .map((o) => o.id);
       } else {

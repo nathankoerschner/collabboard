@@ -38,6 +38,7 @@ export class TextEditor {
 
     input.addEventListener('input', () => {
       this.callbacks.onTextChange?.(this.editingId!, input.value);
+      this._autoGrow(input);
     });
     input.addEventListener('beforeinput', (e) => {
       const predicted = this._predictBeforeInputValue(input, e);
@@ -150,35 +151,46 @@ export class TextEditor {
   }
 
   _positionInput(input: HTMLTextAreaElement, obj: BoardObject): void {
-    const { x: sx, y: sy } = this.camera.worldToScreen(obj.x, obj.y);
     const scale = this.camera.scale;
+    const innerW = Math.max(20, (obj.width - 20) * scale);
+    const innerH = Math.max(20, (obj.height - 20) * scale);
+
+    // Position from object center so rotation pivots correctly
+    const cx = obj.x + obj.width / 2;
+    const cy = obj.y + obj.height / 2;
+    const { x: scx, y: scy } = this.camera.worldToScreen(cx, cy);
 
     input.style.position = 'absolute';
-    input.style.left = `${sx + 6 * scale}px`;
-    input.style.top = `${sy + 6 * scale}px`;
-    input.style.width = `${Math.max(20, (obj.width - 12) * scale)}px`;
-    input.style.height = `${Math.max(20, (obj.height - 12) * scale)}px`;
+    input.style.left = `${scx - innerW / 2}px`;
+    input.style.top = `${scy - innerH / 2}px`;
+    input.style.width = `${innerW}px`;
+    input.style.height = `${innerH}px`;
+    input.style.transform = `rotate(${obj.rotation || 0}deg)`;
     input.style.fontSize = `${14 * scale}px`;
     input.style.lineHeight = `${18 * scale}px`;
     input.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     input.style.border = 'none';
     input.style.outline = 'none';
-    input.style.background = 'rgba(255,255,255,0.8)';
+    input.style.background = 'transparent';
     input.style.resize = 'none';
     input.style.overflow = 'hidden';
     input.style.padding = '0';
     input.style.margin = '0';
-    input.style.wordWrap = 'break-word';
+    input.style.overflowWrap = 'break-word';
     input.style.whiteSpace = 'pre-wrap';
     input.style.zIndex = '40';
-    input.style.color = '#0f172a';
-    input.style.borderRadius = '4px';
+    input.style.color = '#1a1a2e';
+    input.style.borderRadius = '0';
   }
 
   _positionToolbar(toolbar: HTMLDivElement, obj: BoardObject): void {
-    const { x: sx, y: sy } = this.camera.worldToScreen(obj.x, obj.y);
-    toolbar.style.left = `${sx}px`;
-    toolbar.style.top = `${sy - 38}px`;
+    const cx = obj.x + obj.width / 2;
+    const cy = obj.y + obj.height / 2;
+    const { x: scx, y: scy } = this.camera.worldToScreen(cx, cy);
+    const halfH = (obj.height / 2) * this.camera.scale;
+    toolbar.style.left = `${scx}px`;
+    toolbar.style.top = `${scy - halfH - 38}px`;
+    toolbar.style.transform = 'translateX(-50%)';
   }
 
   destroy(): void {
@@ -186,6 +198,17 @@ export class TextEditor {
     window.removeEventListener('beforeunload', this._onBeforeUnload);
     window.removeEventListener('pagehide', this._onPageHide);
     this.stopEditing();
+  }
+
+  private _autoGrow(input: HTMLTextAreaElement): void {
+    if (!this.editingId) return;
+    const scale = this.camera.scale;
+    const padding = 20; // matches the 10px inset on each side in world coords
+    // Temporarily shrink to measure true scrollHeight
+    input.style.height = '0';
+    const neededH = input.scrollHeight / scale + padding;
+    input.style.height = `${Math.max(20, (neededH - padding) * scale)}px`;
+    this.callbacks.onResize?.(this.editingId, 0, neededH);
   }
 
   private flushActiveEdit(): void {

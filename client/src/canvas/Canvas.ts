@@ -39,6 +39,13 @@ export class Canvas {
     this.textEditor = new TextEditor(canvasEl, this.camera, {
       onTextChange: (id, text) => this.objectStore.updateText(id, text),
       onTextStyleChange: (id, patch) => this.objectStore.updateTextStyle(id, patch),
+      onResize: (id, _w, h) => {
+        const obj = this.objectStore.getObject(id);
+        if (!obj) return;
+        if (h > obj.height) {
+          this.objectStore.resizeObject(id, obj.x, obj.y, obj.width, h);
+        }
+      },
     });
 
     this.inputHandler = new InputHandler(canvasEl, this.camera, () => this.objectStore.getAll(), {
@@ -140,8 +147,13 @@ export class Canvas {
 
   _resize(): void {
     const parent = this.canvasEl.parentElement!;
-    this.canvasEl.width = parent.clientWidth;
-    this.canvasEl.height = parent.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+    const w = parent.clientWidth;
+    const h = parent.clientHeight;
+    this.canvasEl.width = w * dpr;
+    this.canvasEl.height = h * dpr;
+    this.canvasEl.style.width = `${w}px`;
+    this.canvasEl.style.height = `${h}px`;
   }
 
   _startRenderLoop(): void {
@@ -154,14 +166,15 @@ export class Canvas {
 
   _draw(): void {
     const { ctx, canvasEl } = this;
+    const dpr = window.devicePixelRatio || 1;
     const w = canvasEl.width;
     const h = canvasEl.height;
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
-    this.camera.applyTransform(ctx);
-    this.renderer.drawBackground(ctx, this.camera, w, h);
+    this.camera.applyTransform(ctx, dpr);
+    this.renderer.drawBackground(ctx, this.camera, w / dpr, h / dpr);
 
     const objects = this.objectStore.getAll();
     const byId = new Map(objects.map((o) => [o.id, o]));
@@ -176,7 +189,7 @@ export class Canvas {
     }
 
     const selectedObjects = this.selectedIds.map((id) => byId.get(id)).filter((o): o is BoardObject => !!o);
-    this.renderer.drawSelection(ctx, selectedObjects, this.camera);
+    this.renderer.drawSelection(ctx, selectedObjects, this.camera, byId);
 
     for (const obj of selectedObjects) {
       if (this.textEditor.getEditingId() === obj.id) {
@@ -189,7 +202,7 @@ export class Canvas {
       const hoveredIds = this.inputHandler.getMarqueeHoveredIds();
       for (const id of hoveredIds) {
         const obj = byId.get(id);
-        if (obj) this.renderer.drawMarqueeHover(ctx, obj, this.camera);
+        if (obj) this.renderer.drawMarqueeHover(ctx, obj, this.camera, byId);
       }
       this.renderer.drawMarquee(ctx, marqueeRect, this.camera);
     }
@@ -216,7 +229,7 @@ export class Canvas {
     try {
       const parsed = JSON.parse(raw);
       if (!parsed?.objects?.length) return;
-      const center = this.camera.screenToWorld(this.canvasEl.width / 2, this.canvasEl.height / 2);
+      const center = this.camera.screenToWorld(this.canvasEl.clientWidth / 2, this.canvasEl.clientHeight / 2);
       const pastedIds = this.objectStore.pasteSerialized(parsed.objects, { x: center.x + 20, y: center.y + 20 }, false);
       this.selectedIds = pastedIds;
       this.inputHandler.setSelection(pastedIds);
@@ -237,7 +250,7 @@ export class Canvas {
   }
 
   getViewportCenter() {
-    return this.camera.screenToWorld(this.canvasEl.width / 2, this.canvasEl.height / 2);
+    return this.camera.screenToWorld(this.canvasEl.clientWidth / 2, this.canvasEl.clientHeight / 2);
   }
 
   getSelectedIds(): string[] {

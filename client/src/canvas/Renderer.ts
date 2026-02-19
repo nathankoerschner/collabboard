@@ -69,14 +69,15 @@ export class Renderer {
   drawStickyNote(ctx: CanvasRenderingContext2D, obj: BoardObject, skipText = false): void {
     const color = this._color(obj.type === 'sticky' ? (obj as import('../types.js').StickyNote).color : '', '#fef08a');
     this._drawRotatedBox(ctx, obj, (lx, ly, w, h) => {
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.12)';
+      ctx.shadowBlur = 8;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 2;
       ctx.fillStyle = color;
       this.roundRect(ctx, lx, ly, w, h, 6);
       ctx.fill();
-
-      ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-      ctx.lineWidth = 1;
-      this.roundRect(ctx, lx, ly, w, h, 6);
-      ctx.stroke();
+      ctx.restore();
 
       if (!skipText && obj.type === 'sticky' && obj.text) {
         ctx.save();
@@ -213,17 +214,24 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawSelection(ctx: CanvasRenderingContext2D, selectedObjects: BoardObject[], camera: Camera): void {
+  drawSelection(ctx: CanvasRenderingContext2D, selectedObjects: BoardObject[], camera: Camera, objectsById: Map<string, BoardObject>): void {
     if (!selectedObjects.length) return;
 
     if (selectedObjects.length === 1) {
       const obj = selectedObjects[0]!;
-      this.drawSelectionHandles(ctx, obj, camera);
+      this.drawSelectionHandles(ctx, obj, camera, objectsById);
       return;
     }
 
-    const bounds = getSelectionBounds(selectedObjects);
+    const bounds = getSelectionBounds(selectedObjects, objectsById);
     if (!bounds) return;
+
+    // Draw highlighted line for each selected connector
+    for (const obj of selectedObjects) {
+      if (obj.type === 'connector') {
+        this._drawConnectorSelectionHighlight(ctx, obj, camera, objectsById);
+      }
+    }
 
     ctx.save();
     ctx.strokeStyle = '#2563eb';
@@ -247,7 +255,27 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawSelectionHandles(ctx: CanvasRenderingContext2D, obj: BoardObject, camera: Camera): void {
+  drawSelectionHandles(ctx: CanvasRenderingContext2D, obj: BoardObject, camera: Camera, objectsById: Map<string, BoardObject>): void {
+    if (obj.type === 'connector') {
+      this._drawConnectorSelectionHighlight(ctx, obj, camera, objectsById);
+      // Draw endpoint handles
+      const { start, end } = getConnectorEndpoints(obj, objectsById);
+      if (!start || !end) return;
+      ctx.save();
+      const size = HANDLE_SIZE / camera.scale;
+      for (const pt of [start, end]) {
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 1.5 / camera.scale;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, size / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
+
     const size = HANDLE_SIZE / camera.scale;
     const handles = getHandlePositions(obj);
 
@@ -262,37 +290,48 @@ export class Renderer {
       ctx.stroke();
     }
 
-    if (obj.type !== 'connector') {
-      const box = getObjectAABB(obj);
-      ctx.strokeStyle = '#2563eb';
-      ctx.lineWidth = 1.5 / camera.scale;
-      ctx.setLineDash([5 / camera.scale, 4 / camera.scale]);
-      ctx.strokeRect(box.x, box.y, box.width, box.height);
-      ctx.setLineDash([]);
+    const box = getObjectAABB(obj);
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 1.5 / camera.scale;
+    ctx.setLineDash([5 / camera.scale, 4 / camera.scale]);
+    ctx.strokeRect(box.x, box.y, box.width, box.height);
+    ctx.setLineDash([]);
 
-      const rotHandle = getRotationHandlePoint(box);
+    const rotHandle = getRotationHandlePoint(box);
+    ctx.beginPath();
+    ctx.arc(rotHandle.x, rotHandle.y, 6 / camera.scale, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(box.x + box.width / 2, box.y);
+    ctx.lineTo(rotHandle.x, rotHandle.y + 6 / camera.scale);
+    ctx.stroke();
+
+    const ports = getPortList(obj);
+    for (const p of ports) {
       ctx.beginPath();
-      ctx.arc(rotHandle.x, rotHandle.y, 6 / camera.scale, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, 3.5 / camera.scale, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1 / camera.scale;
       ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(box.x + box.width / 2, box.y);
-      ctx.lineTo(rotHandle.x, rotHandle.y + 6 / camera.scale);
-      ctx.stroke();
-
-      const ports = getPortList(obj);
-      for (const p of ports) {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 3.5 / camera.scale, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.fill();
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 1 / camera.scale;
-        ctx.stroke();
-      }
     }
+    ctx.restore();
+  }
+
+  _drawConnectorSelectionHighlight(ctx: CanvasRenderingContext2D, obj: BoardObject, camera: Camera, objectsById: Map<string, BoardObject>): void {
+    const { start, end } = getConnectorEndpoints(obj, objectsById);
+    if (!start || !end) return;
+    ctx.save();
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 4 / camera.scale;
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -332,7 +371,20 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawMarqueeHover(ctx: CanvasRenderingContext2D, obj: BoardObject, camera: Camera): void {
+  drawMarqueeHover(ctx: CanvasRenderingContext2D, obj: BoardObject, camera: Camera, objectsById: Map<string, BoardObject>): void {
+    if (obj.type === 'connector') {
+      const { start, end } = getConnectorEndpoints(obj, objectsById);
+      if (!start || !end) return;
+      ctx.save();
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 4 / camera.scale;
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x, end.y);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
     const box = getObjectAABB(obj);
     ctx.strokeStyle = '#2563eb';
     ctx.lineWidth = 1.5 / camera.scale;
