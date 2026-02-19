@@ -1,10 +1,5 @@
 import type { CursorData, RemoteCursor } from '../types.js';
-
-const CURSOR_PALETTE = [
-  '#e74c3c', '#3498db', '#2ecc71', '#9b59b6',
-  '#e67e22', '#1abc9c', '#e84393', '#00b894',
-  '#fdcb6e', '#6c5ce7', '#00cec9', '#d63031',
-];
+import { getPresenceColor } from './presenceColor.js';
 
 const SEND_INTERVAL = 1000 / 15; // 15Hz
 const LERP_FACTOR = 0.15;
@@ -20,20 +15,25 @@ interface Awareness {
 
 export class CursorManager {
   awareness: Awareness;
-  localUser: { name?: string };
+  localUser: { name?: string; id?: string };
   remoteCursors = new Map<number, RemoteCursor>();
   lastSendTime = 0;
 
   private readonly _onAwarenessChange: () => void;
 
-  constructor(awareness: Awareness, localUser: { name?: string } = {}) {
+  constructor(awareness: Awareness, localUser: { name?: string; id?: string } = {}) {
     this.awareness = awareness;
     this.localUser = localUser;
 
-    awareness.setLocalStateField('user', {
+    const localPresenceUser = {
+      id: localUser.id,
       name: localUser.name || 'Anonymous',
-      color: CURSOR_PALETTE[awareness.clientID % CURSOR_PALETTE.length],
-    });
+    };
+    const localStateUser: Record<string, unknown> = {
+      ...localPresenceUser,
+      color: getPresenceColor(localPresenceUser, awareness.clientID),
+    };
+    awareness.setLocalStateField('user', localStateUser);
 
     this._onAwarenessChange = this._handleAwarenessChange.bind(this);
     awareness.on('change', this._onAwarenessChange);
@@ -67,21 +67,38 @@ export class CursorManager {
   private _handleAwarenessChange(): void {
     const states = this.awareness.getStates();
     const localClientId = this.awareness.clientID;
-
-    for (const clientId of this.remoteCursors.keys()) {
-      if (!states.has(clientId)) {
-        this.remoteCursors.delete(clientId);
-      }
-    }
+    const latestClientByUserKey = new Map<string, number>();
 
     for (const [clientId, state] of states) {
       if (clientId === localClientId) continue;
       const cursor = state.cursor as { x: number; y: number } | undefined;
       if (!cursor) continue;
 
+      const user = (state.user || {}) as { id?: string; sub?: string };
+      const userKey = this._getUserKey(clientId, user);
+      const existingClientId = latestClientByUserKey.get(userKey);
+      if (existingClientId === undefined || clientId > existingClientId) {
+        latestClientByUserKey.set(userKey, clientId);
+      }
+    }
+
+    const activeClientIds = new Set(latestClientByUserKey.values());
+
+    for (const clientId of this.remoteCursors.keys()) {
+      if (!states.has(clientId) || !activeClientIds.has(clientId)) {
+        this.remoteCursors.delete(clientId);
+      }
+    }
+
+    for (const [clientId, state] of states) {
+      if (!activeClientIds.has(clientId)) continue;
+      if (clientId === localClientId) continue;
+      const cursor = state.cursor as { x: number; y: number } | undefined;
+      if (!cursor) continue;
+
       const existing = this.remoteCursors.get(clientId);
-      const user = (state.user || {}) as { name?: string; color?: string };
-      const color = user.color || CURSOR_PALETTE[clientId % CURSOR_PALETTE.length]!;
+      const user = (state.user || {}) as { id?: string; sub?: string; name?: string; color?: string };
+      const color = user.color || getPresenceColor(user, clientId);
 
       if (existing) {
         existing.targetX = cursor.x;
@@ -101,6 +118,12 @@ export class CursorManager {
         });
       }
     }
+  }
+
+  private _getUserKey(clientId: number, user: { id?: string; sub?: string }): string {
+    const stableId = user.id || user.sub;
+    if (typeof stableId === 'string' && stableId.length > 0) return stableId;
+    return `client:${clientId}`;
   }
 
   destroy(): void {

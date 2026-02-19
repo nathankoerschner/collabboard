@@ -156,7 +156,8 @@ export const boardView = {
       getObjectIds: () => boardManager?.getObjectStore().getAll().map((obj) => obj.id) || [],
     };
 
-    cursorManager = new CursorManager(boardManager.getAwareness(), { name: userName });
+    const userId = user?.id || (user as Record<string, unknown>)?.sub;
+    cursorManager = new CursorManager(boardManager.getAwareness(), { name: userName, id: typeof userId === 'string' ? userId : undefined });
 
     const canvasEl = document.getElementById('board-canvas') as HTMLCanvasElement;
     const toolbar = document.getElementById('toolbar')!;
