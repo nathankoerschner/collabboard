@@ -36,14 +36,26 @@ export class UndoRedoManager {
       },
     );
 
-    this.undoManager.on('stack-item-added', () => {
-      this.metaUndo.push({ kind: 'yjs' });
-      this.metaRedo = [];
-      this._trimStacks();
+    this.undoManager.on('stack-item-added', (event: { type: 'undo' | 'redo'; origin: unknown }) => {
+      if (event.type === 'undo') {
+        this.metaUndo.push({ kind: 'yjs' });
+        // Clear redo only for fresh local edits, not while replaying redo()
+        if (event.origin !== this.undoManager) {
+          this.metaRedo = [];
+        }
+        this._trimStacks();
+      } else {
+        this.metaRedo.push({ kind: 'yjs' });
+      }
       this._notifyStackChange();
     });
 
-    this.undoManager.on('stack-item-popped', () => {
+    this.undoManager.on('stack-item-popped', (event: { type: 'undo' | 'redo' }) => {
+      if (event.type === 'undo') {
+        this._popLastKind(this.metaUndo, 'yjs');
+      } else {
+        this._popLastKind(this.metaRedo, 'yjs');
+      }
       this._notifyStackChange();
     });
   }
@@ -99,8 +111,6 @@ export class UndoRedoManager {
 
     if (entry.kind === 'yjs') {
       if (this.undoManager.undoStack.length === 0) return;
-      this.metaUndo.pop();
-      this.metaRedo.push({ kind: 'yjs' });
       this.undoManager.undo();
     } else {
       this.metaUndo.pop();
@@ -116,8 +126,6 @@ export class UndoRedoManager {
 
     if (entry.kind === 'yjs') {
       if (this.undoManager.redoStack.length === 0) return;
-      this.metaRedo.pop();
-      this.metaUndo.push({ kind: 'yjs' });
       this.undoManager.redo();
     } else {
       this.metaRedo.pop();
@@ -208,6 +216,15 @@ export class UndoRedoManager {
   private _notifyStackChange(): void {
     for (const cb of this.stackChangeListeners) {
       cb();
+    }
+  }
+
+  private _popLastKind(stack: UndoEntry[], kind: UndoEntry['kind']): void {
+    for (let i = stack.length - 1; i >= 0; i--) {
+      if (stack[i]?.kind === kind) {
+        stack.splice(i, 1);
+        return;
+      }
     }
   }
 }
