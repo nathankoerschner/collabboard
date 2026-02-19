@@ -82,25 +82,31 @@ function buildPlannerPrompt(toolNames: string[]): string {
     'Return JSON only with shape: {"actions":[{"toolName":"...","args":{}}]}.',
     `Use only these tool names: ${toolNames.join(', ')}.`,
     'Prefer batch tools when they fit the request.',
-    'For section/column layouts, create one parent frame and one child frame per requested section title.',
+    'For templates/boards (SWOT, kanban, retro, pros/cons, 2x2), always use createStructuredTemplate instead of creating frames manually.',
     `Limit actions to ${MAX_PLANNED_ACTIONS}.`,
   ].join('\n');
 }
 
-function extractQuotedSectionTitles(prompt: string): string[] {
-  const out: string[] = [];
-  const re = /"([^"\n]{1,80})"/g;
-  let match: RegExpExecArray | null = null;
-  while ((match = re.exec(prompt))) {
-    const title = match[1]?.trim();
-    if (title) out.push(title);
-  }
-  return out.slice(0, 12);
-}
+/**
+ * Detect prompts that are too complex for the lightweight planner model.
+ * These need the full execution model with tool calling for proper spatial
+ * reasoning, multi-object layouts, or creative composition.
+ */
+function shouldSkipPlanner(prompt: string): boolean {
+  // Multiple objects / grids / spatial layouts
+  if (/\b(grid|array|matrix|row|rows)\b/i.test(prompt)) return true;
+  if (/\b(\d{2,}|[4-9])\s*(sticky|stickies|note|notes|shape|shapes|rect|circle|ellipse|object|objects|card|cards|item|items)\b/i.test(prompt)) return true;
 
-function shouldAutoCreateSectionFrames(prompt: string, sectionTitles: string[]): boolean {
-  if (sectionTitles.length < 2) return false;
-  return /\b(section|sections|column|columns|board|chart|frame|frames)\b/i.test(prompt);
+  // Creative / drawing requests
+  if (/\b(draw|sketch|illustrate|picture|image|diagram|depict|render)\b/i.test(prompt)) return true;
+
+  // Spatial relationships between objects
+  if (/\b(inside|within|around|surrounding|on\s*top\s*of|behind|between|overlapping|centered\s*in|next\s*to|above|below)\b/i.test(prompt)) return true;
+
+  // Operations on existing objects (need to read board state first)
+  if (/\b(arrange|organize|sort|align|distribute|reorder|rearrange|move\s+all|resize\s+all|select|selected)\b/i.test(prompt)) return true;
+
+  return false;
 }
 
 function parsePlannedActions(content: unknown): Array<{ toolName: string; args: Record<string, unknown> }> {
@@ -199,143 +205,108 @@ export async function executeBoardAICommand({ boardId, prompt, viewportCenter, u
         .filter((name): name is string => Boolean(name))
     );
 
-    const sectionTitles = extractQuotedSectionTitles(prompt);
-    if (shouldAutoCreateSectionFrames(prompt, sectionTitles)) {
-      const sectionW = 546;
-      const sectionH = 404;
-      const gap = 24;
-      const cols = Math.min(3, sectionTitles.length) || 1;
-      const rows = Math.ceil(sectionTitles.length / cols);
-      const contentWidth = cols * sectionW + (cols - 1) * gap;
-      const contentHeight = rows * sectionH + (rows - 1) * gap;
-      const startX = Math.round(normalizedViewport.x - contentWidth / 2);
-      const startY = Math.round(normalizedViewport.y - contentHeight / 2);
+    const openai = getOpenAI();
+    const skipPlanner = shouldSkipPlanner(prompt);
 
-      for (let i = 0; i < sectionTitles.length; i++) {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        toolRunner.invoke('createFrame', {
-          title: sectionTitles[i],
-          x: startX + col * (sectionW + gap),
-          y: startY + row * (sectionH + gap),
-          width: sectionW,
-          height: sectionH,
-        });
-      }
+    if (!skipPlanner) {
+        const plannerMessages: ChatCompletionMessageParam[] = [
+          { role: 'system', content: buildPlannerPrompt([...toolNameSet]) },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              prompt,
+              viewportCenter: normalizedViewport,
+            }),
+          },
+        ];
 
-      const outerPadding = 24;
-      const outerTitleBarAndPadding = 56;
-      toolRunner.invoke('createFrame', {
-        title: 'Template',
-        x: startX - outerPadding,
-        y: startY - outerTitleBarAndPadding,
-        width: contentWidth + outerPadding * 2,
-        height: contentHeight + outerPadding + outerTitleBarAndPadding,
-      });
-
-      completed = true;
-    }
-
-    if (!completed) {
-      const openai = getOpenAI();
-
-      const plannerMessages: ChatCompletionMessageParam[] = [
-        { role: 'system', content: buildPlannerPrompt([...toolNameSet]) },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            prompt,
-            viewportCenter: normalizedViewport,
-          }),
-        },
-      ];
-
-      try {
-        const plannerStartedAt = Date.now();
-        const plannerCompletion = await openai.chat.completions.create({
-          model: PLANNER_MODEL,
-          temperature: 0,
-          response_format: { type: 'json_object' },
-          max_tokens: PLANNER_MAX_TOKENS,
-          messages: plannerMessages,
-        });
-        llmRounds += 1;
-        usageTotals.inputTokens += plannerCompletion.usage?.prompt_tokens || 0;
-        usageTotals.outputTokens += plannerCompletion.usage?.completion_tokens || 0;
-        usageTotals.totalTokens += plannerCompletion.usage?.total_tokens || 0;
-
-        const plannerChoice = plannerCompletion.choices?.[0]?.message;
-        await trace((ctx) =>
-          recordLLMGeneration(ctx, {
+        try {
+          const plannerStartedAt = Date.now();
+          const plannerCompletion = await openai.chat.completions.create({
             model: PLANNER_MODEL,
-            input: plannerMessages,
-            output: plannerChoice,
-            usage: plannerCompletion.usage,
-            metadata: {
-              phase: 'planner',
-              durationMs: Date.now() - plannerStartedAt,
-            },
-          })
-        );
+            temperature: 0,
+            response_format: { type: 'json_object' },
+            max_tokens: PLANNER_MAX_TOKENS,
+            messages: plannerMessages,
+          });
+          llmRounds += 1;
+          usageTotals.inputTokens += plannerCompletion.usage?.prompt_tokens || 0;
+          usageTotals.outputTokens += plannerCompletion.usage?.completion_tokens || 0;
+          usageTotals.totalTokens += plannerCompletion.usage?.total_tokens || 0;
 
-        const plannedActions = parsePlannedActions(plannerChoice?.content);
-        if (plannedActions.length > 0) {
-          plannerUsed = true;
-          plannerActionCount = plannedActions.length;
+          const plannerChoice = plannerCompletion.choices?.[0]?.message;
+          await trace((ctx) =>
+            recordLLMGeneration(ctx, {
+              model: PLANNER_MODEL,
+              input: plannerMessages,
+              output: plannerChoice,
+              usage: plannerCompletion.usage,
+              metadata: {
+                phase: 'planner',
+                durationMs: Date.now() - plannerStartedAt,
+              },
+            })
+          );
 
-          for (let i = 0; i < plannedActions.length; i++) {
-            const action = plannedActions[i]!;
-            const toolStartedAt = Date.now();
-            if (!toolNameSet.has(action.toolName)) {
-              const error = `Planner emitted unsupported tool: ${action.toolName}`;
-              errors.push(error);
-              await trace((ctx) =>
-                recordToolCall(ctx, {
-                  toolName: action.toolName,
-                  toolCallId: `planner-${i}`,
-                  round: i,
-                  args: action.args,
-                  result: null,
-                  error,
-                  durationMs: Date.now() - toolStartedAt,
-                })
-              );
-              continue;
+          const plannedActions = parsePlannedActions(plannerChoice?.content);
+          if (plannedActions.length > 0) {
+            plannerUsed = true;
+            plannerActionCount = plannedActions.length;
+
+            for (let i = 0; i < plannedActions.length; i++) {
+              const action = plannedActions[i]!;
+              const toolStartedAt = Date.now();
+              if (!toolNameSet.has(action.toolName)) {
+                const error = `Planner emitted unsupported tool: ${action.toolName}`;
+                errors.push(error);
+                await trace((ctx) =>
+                  recordToolCall(ctx, {
+                    toolName: action.toolName,
+                    toolCallId: `planner-${i}`,
+                    round: i,
+                    args: action.args,
+                    result: null,
+                    error,
+                    durationMs: Date.now() - toolStartedAt,
+                  })
+                );
+                continue;
+              }
+
+              try {
+                const result = toolRunner.invoke(action.toolName, action.args);
+                await trace((ctx) =>
+                  recordToolCall(ctx, {
+                    toolName: action.toolName,
+                    toolCallId: `planner-${i}`,
+                    round: i,
+                    args: action.args,
+                    result,
+                    durationMs: Date.now() - toolStartedAt,
+                  })
+                );
+              } catch (err: unknown) {
+                const message = `Tool ${action.toolName} failed: ${(err as Error).message}`;
+                errors.push(message);
+                await trace((ctx) =>
+                  recordToolCall(ctx, {
+                    toolName: action.toolName,
+                    toolCallId: `planner-${i}`,
+                    round: i,
+                    args: action.args,
+                    result: null,
+                    error: message,
+                    durationMs: Date.now() - toolStartedAt,
+                  })
+                );
+              }
             }
 
-            try {
-              const result = toolRunner.invoke(action.toolName, action.args);
-              await trace((ctx) =>
-                recordToolCall(ctx, {
-                  toolName: action.toolName,
-                  toolCallId: `planner-${i}`,
-                  round: i,
-                  args: action.args,
-                  result,
-                  durationMs: Date.now() - toolStartedAt,
-                })
-              );
-            } catch (err: unknown) {
-              const message = `Tool ${action.toolName} failed: ${(err as Error).message}`;
-              errors.push(message);
-              await trace((ctx) =>
-                recordToolCall(ctx, {
-                  toolName: action.toolName,
-                  toolCallId: `planner-${i}`,
-                  round: i,
-                  args: action.args,
-                  result: null,
-                  error: message,
-                  durationMs: Date.now() - toolStartedAt,
-                })
-              );
-            }
+            completed = true;
           }
-
-          completed = true;
+        } catch (plannerErr: unknown) {
+          errors.push(`Planner stage failed: ${(plannerErr as Error).message}`);
         }
-      } catch (plannerErr: unknown) {
-        errors.push(`Planner stage failed: ${(plannerErr as Error).message}`);
       }
 
       if (!completed) {
@@ -446,7 +417,6 @@ export async function executeBoardAICommand({ boardId, prompt, viewportCenter, u
           }
         }
       }
-    }
 
     mutationSummary = toolRunner.applyToDoc();
   } catch (err: unknown) {

@@ -154,6 +154,9 @@ export class TextEditor {
     const scale = this.camera.scale;
     const innerW = Math.max(20, (obj.width - 20) * scale);
     const innerH = Math.max(20, (obj.height - 20) * scale);
+    const fontSize = 14 * scale;
+    const lineHeight = 18 * scale;
+    const firstLineOffset = this._firstLineOffset(fontSize, lineHeight, scale);
 
     // Position from object center so rotation pivots correctly
     const cx = obj.x + obj.width / 2;
@@ -162,16 +165,17 @@ export class TextEditor {
 
     input.style.position = 'absolute';
     input.style.left = `${scx - innerW / 2}px`;
-    input.style.top = `${scy - innerH / 2}px`;
+    input.style.top = `${scy - innerH / 2 - firstLineOffset}px`;
     input.style.width = `${innerW}px`;
-    input.style.height = `${innerH}px`;
+    input.style.height = `${innerH + firstLineOffset}px`;
     input.style.transform = `rotate(${obj.rotation || 0}deg)`;
-    input.style.fontSize = `${14 * scale}px`;
-    input.style.lineHeight = `${18 * scale}px`;
+    input.style.fontSize = `${fontSize}px`;
+    input.style.lineHeight = `${lineHeight}px`;
     input.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     input.style.border = 'none';
     input.style.outline = 'none';
     input.style.background = 'transparent';
+    input.style.appearance = 'none';
     input.style.resize = 'none';
     input.style.overflow = 'hidden';
     input.style.padding = '0';
@@ -204,11 +208,20 @@ export class TextEditor {
     if (!this.editingId) return;
     const scale = this.camera.scale;
     const padding = 20; // matches the 10px inset on each side in world coords
+    const fontSize = parseFloat(input.style.fontSize) || (14 * scale);
+    const lineHeight = parseFloat(input.style.lineHeight) || (18 * scale);
+    const firstLineOffset = this._firstLineOffset(fontSize, lineHeight, scale);
     // Temporarily shrink to measure true scrollHeight
     input.style.height = '0';
     const neededH = input.scrollHeight / scale + padding;
-    input.style.height = `${Math.max(20, (neededH - padding) * scale)}px`;
+    input.style.height = `${Math.max(20, (neededH - padding) * scale) + firstLineOffset}px`;
     this.callbacks.onResize?.(this.editingId, 0, neededH);
+  }
+
+  private _firstLineOffset(fontSize: number, lineHeight: number, scale: number): number {
+    const leadingOffset = Math.max(0, (lineHeight - fontSize) / 2);
+    const intrinsicTextareaInset = 0.5 * scale;
+    return leadingOffset + intrinsicTextareaInset;
   }
 
   private flushActiveEdit(): void {

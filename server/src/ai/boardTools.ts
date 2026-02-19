@@ -550,34 +550,56 @@ export class BoardToolRunner {
     const args = validateToolArgs('createStructuredTemplate', raw);
     const template = (TEMPLATE_TYPES as readonly string[]).includes(args.template as string) ? (args.template as string) : 'swot';
     const title = clampText(args.title, 120, template.toUpperCase().replace('_', ' '));
-    const sectionW = 546;
-    const sectionH = 404;
     const gap = 24;
 
+    // Each template type has its own layout: section count, column count, and dimensions.
+    // "grid" templates (swot, 2x2) use wide+short sections in a grid.
+    // "column" templates (kanban, retro, pros/cons) use narrow+tall sections in a single row.
     let sectionTitles: string[] = [];
     let cols = 2;
+    let sectionW = 546;
+    let sectionH = 404;
+
     if (template === 'swot') {
       sectionTitles = ['Strengths', 'Weaknesses', 'Opportunities', 'Threats'];
       cols = 2;
+      sectionW = 546;
+      sectionH = 404;
     } else if (template === 'kanban') {
       sectionTitles = ['Backlog', 'Todo', 'In Progress', 'Done'];
       cols = 4;
+      sectionW = 280;
+      sectionH = 600;
     } else if (template === 'retrospective') {
       sectionTitles = ['Went Well', 'To Improve', 'Action Items'];
       cols = 3;
+      sectionW = 360;
+      sectionH = 600;
     } else if (template === 'pros_cons') {
       sectionTitles = ['Pros', 'Cons'];
       cols = 2;
+      sectionW = 460;
+      sectionH = 600;
     } else {
       sectionTitles = ['Q1', 'Q2', 'Q3', 'Q4'];
       cols = 2;
+      sectionW = 546;
+      sectionH = 404;
     }
 
     const customTitles = (args.sectionTitles as string[]) || [];
     if (customTitles.length) {
-      // Explicit section titles should determine the exact number of sections.
       sectionTitles = [...customTitles];
-      cols = Math.min(cols, sectionTitles.length) || 1;
+      // For custom titles, lay out as columns in a single row (up to 6), then wrap.
+      cols = Math.min(sectionTitles.length, 6);
+      if (sectionTitles.length <= 2) {
+        sectionW = 460;
+      } else if (sectionTitles.length <= 4) {
+        sectionW = 360;
+      } else {
+        sectionW = 280;
+      }
+      sectionH = 600;
     }
 
     const rows = Math.ceil(sectionTitles.length / cols);

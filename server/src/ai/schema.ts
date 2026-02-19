@@ -19,6 +19,7 @@ export const AI_TOOL_NAMES = [
   'createObjectsBatch',
   'updateObjectsBatch',
   'deleteObjectsBatch',
+  'createStructuredTemplate',
 ] as const;
 
 export const OBJECT_TYPES = ['sticky', 'shape', 'text', 'connector', 'frame'] as const;
@@ -599,6 +600,29 @@ export function toToolDefinitions(): ChatCompletionTool[] {
             },
           },
           required: ['operations'],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'createStructuredTemplate',
+        description: 'Create a structured template layout (SWOT, kanban, retrospective, pros/cons, 2x2 matrix) with titled section frames inside a parent frame.',
+        parameters: {
+          type: 'object',
+          properties: {
+            template: { type: 'string', enum: [...TEMPLATE_TYPES] },
+            title: { type: 'string' },
+            x: { type: 'number' },
+            y: { type: 'number' },
+            sectionTitles: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Override default section titles. If provided, determines the number of sections.',
+            },
+          },
+          required: ['template'],
           additionalProperties: false,
         },
       },
