@@ -1,13 +1,14 @@
 import { ChatOpenAI } from '@langchain/openai';
-import { createReactAgent } from '@langchain/langgraph/prebuilt';
-import { SystemMessage, HumanMessage } from '@langchain/core/messages';
+import { SystemMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
+import type { AIMessage } from '@langchain/core/messages';
 // @ts-expect-error y-websocket/bin/utils has no types
 import { getYDoc } from 'y-websocket/bin/utils';
 import { BoardToolRunner } from './boardTools.js';
 import { normalizeViewportCenter, toLangChainTools } from './schema.js';
-import { finishAITrace, recordAIError, startAITrace } from './observability.js';
+import { finishAITrace, recordAIError, startAITrace, startRoundSpan, endRoundSpan } from './observability.js';
 
-const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-5.2';
+const FAST_MODEL = process.env.OPENAI_FAST_MODEL || 'gpt-4o-mini';
+const POWER_MODEL = process.env.OPENAI_MODEL || 'gpt-5.2';
 const MAX_TOOL_ROUNDS = 8;
 
 function buildSystemPrompt(): string {
@@ -74,6 +75,7 @@ export async function executeBoardAICommand({ boardId, prompt, viewportCenter, s
   const traceCtx = await startAITrace({ boardId, userId, prompt, viewportCenter: viewport });
   const errors: string[] = [];
   let completed = false;
+  const modelsUsed = new Set<string>();
   let mutationSummary = {
     createdIds: [] as string[],
     updatedIds: [] as string[],
@@ -92,38 +94,65 @@ export async function executeBoardAICommand({ boardId, prompt, viewportCenter, s
       actorId: `ai:${userId || 'anonymous'}`,
     });
 
-    const llm = new ChatOpenAI({
-      model: DEFAULT_MODEL,
+    const fastLlm = new ChatOpenAI({
+      model: FAST_MODEL,
+      temperature: 0,
+      openAIApiKey: process.env.OPENAI_API_KEY,
+    });
+    const powerLlm = new ChatOpenAI({
+      model: POWER_MODEL,
       temperature: 0,
       openAIApiKey: process.env.OPENAI_API_KEY,
     });
 
     const tools = toLangChainTools(toolRunner);
 
-    // eslint-disable-next-line deprecation/deprecation
-    const agent = createReactAgent({
-      llm,
-      tools,
-    });
+    const LAYOUT_TOOLS = new Set(['createFrame', 'arrangeObjectsInGrid']);
 
-    // Each round = 1 LLM call + 1 tool execution = 2 graph steps
-    const result = await agent.invoke(
-      {
-        messages: [
-          new SystemMessage(buildSystemPrompt()),
-          new HumanMessage(JSON.stringify({
-            prompt,
-            viewportCenter: viewport,
-            selectedObjectIds: selectedObjectIds || [],
-          })),
-        ],
-      },
-      { recursionLimit: MAX_TOOL_ROUNDS * 2 },
-    );
+    const messages: BaseMessage[] = [
+      new SystemMessage(buildSystemPrompt()),
+      new HumanMessage(JSON.stringify({
+        prompt,
+        viewportCenter: viewport,
+        selectedObjectIds: selectedObjectIds || [],
+      })),
+    ];
 
-    // Check if the agent completed (last message is from AI with no tool calls)
-    const lastMessage = result.messages[result.messages.length - 1];
-    completed = lastMessage?._getType?.() === 'ai' || lastMessage?.constructor?.name === 'AIMessage';
+    let needsPowerModel = false;
+
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      const model = needsPowerModel ? POWER_MODEL : FAST_MODEL;
+      const llm = needsPowerModel ? powerLlm : fastLlm;
+      modelsUsed.add(model);
+
+      const roundSpan = await startRoundSpan(traceCtx, { round, model });
+      const response = await llm.bindTools(tools).invoke(messages) as AIMessage;
+      messages.push(response);
+
+      const toolCalls = response.tool_calls ?? [];
+      await endRoundSpan(roundSpan, { model, toolCalls: toolCalls.map((tc) => tc.name) });
+
+      if (toolCalls.length === 0) {
+        completed = true;
+        break;
+      }
+
+      // Escalate to power model if layout tools are invoked
+      if (!needsPowerModel && toolCalls.some((tc) => LAYOUT_TOOLS.has(tc.name))) {
+        needsPowerModel = true;
+      }
+
+      for (const toolCall of toolCalls) {
+        const tool = tools.find((t) => t.name === toolCall.name);
+        const result = tool
+          ? await tool.invoke(toolCall.args)
+          : JSON.stringify({ error: `Unknown tool: ${toolCall.name}` });
+        messages.push(new ToolMessage({
+          content: typeof result === 'string' ? result : JSON.stringify(result),
+          tool_call_id: toolCall.id!,
+        }));
+      }
+    }
 
     mutationSummary = toolRunner.applyToDoc();
   } catch (err: unknown) {
@@ -150,6 +179,7 @@ export async function executeBoardAICommand({ boardId, prompt, viewportCenter, s
       errors,
       durationMs,
       completed,
+      modelsUsed: [...modelsUsed],
     });
   }
 

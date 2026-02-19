@@ -447,7 +447,6 @@ export function toToolDefinitions(): ChatCompletionTool[] {
 }
 
 const paletteEnum = z.enum([...PALETTE_NAMES] as [string, ...string[]]);
-const stickyColorEnum = z.enum([...STICKY_COLORS] as [string, ...string[]]);
 
 const langChainSchemas: Record<string, { description: string; schema: z.ZodObject<z.ZodRawShape> }> = {
   createStickyNote: {
@@ -458,7 +457,7 @@ const langChainSchemas: Record<string, { description: string; schema: z.ZodObjec
       y: z.number().optional().describe('Y coordinate'),
       width: z.number().optional().describe('Width'),
       height: z.number().optional().describe('Height'),
-      color: stickyColorEnum.optional().describe('Color'),
+      color: paletteEnum.optional().describe('Sticky color (yellow, blue, green, pink, purple, orange, red, teal)'),
     }),
   },
   createShape: {

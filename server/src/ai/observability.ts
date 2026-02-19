@@ -1,4 +1,4 @@
-interface TraceContext {
+export interface TraceContext {
   enabled: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   trace?: any;
@@ -71,6 +71,36 @@ export async function startAITrace({ boardId, userId, prompt, viewportCenter }: 
   }
 }
 
+export async function startRoundSpan(traceCtx: TraceContext, { round, model }: { round: number; model: string }): Promise<unknown> {
+  if (!traceCtx?.enabled || !traceCtx.rootSpan) return null;
+  try {
+    const span = traceCtx.rootSpan.createChild({
+      name: `llm_round_${round}`,
+      run_type: 'llm',
+      extra: {
+        metadata: { model, round },
+      },
+    });
+    background(span.postRun(), `LangSmith round ${round} span post failed`);
+    return span;
+  } catch {
+    return null;
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function endRoundSpan(span: any, { model, toolCalls }: { model: string; toolCalls: string[] }): Promise<void> {
+  if (!span) return;
+  try {
+    await span.end({
+      outputs: { model, toolCalls },
+    });
+    await span.patchRun();
+  } catch {
+    // swallow
+  }
+}
+
 // LangChain auto-traces LLM generations and tool calls to LangSmith when
 // LANGSMITH_API_KEY is set. These no-op stubs preserve the export signature
 // for any callers that still reference them (e.g. tests).
@@ -107,8 +137,12 @@ export async function recordAIError(traceCtx: TraceContext, payload: { message: 
   }
 }
 
-export async function finishAITrace(traceCtx: TraceContext, payload: { createdIds: string[]; updatedIds: string[]; deletedIds: string[]; toolCalls: unknown[]; errors: string[]; durationMs: number; completed: boolean }): Promise<void> {
+export async function finishAITrace(traceCtx: TraceContext, payload: { createdIds: string[]; updatedIds: string[]; deletedIds: string[]; toolCalls: unknown[]; errors: string[]; durationMs: number; completed: boolean; modelsUsed?: string[] }): Promise<void> {
   if (!traceCtx?.enabled) return;
+  const escalated = (payload.modelsUsed?.length ?? 0) > 1;
+  const modelTags = (payload.modelsUsed ?? []).map((m) => `model:${m}`);
+  if (escalated) modelTags.push('escalated');
+
   try {
     if (traceCtx.rootSpan) {
       await traceCtx.rootSpan.end({
@@ -122,6 +156,17 @@ export async function finishAITrace(traceCtx: TraceContext, payload: { createdId
       });
       await traceCtx.rootSpan.patchRun();
     }
+
+    // Patch metadata and tags onto the trace for first-class LangSmith filtering
+    traceCtx.trace.extra = {
+      ...traceCtx.trace.extra,
+      metadata: {
+        ...(traceCtx.trace.extra?.metadata || {}),
+        modelsUsed: payload.modelsUsed,
+        escalated,
+      },
+    };
+    traceCtx.trace.tags = [...(traceCtx.trace.tags || []), ...modelTags];
 
     await traceCtx.trace.end({
       outputs: {
