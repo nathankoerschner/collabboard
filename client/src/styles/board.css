@@ -435,3 +435,94 @@
   background: #f1f5f9;
   color: var(--color-text, #1e293b);
 }
+
+/* ── Selection Toolbar ── */
+
+.selection-toolbar {
+  position: absolute;
+  z-index: 28;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: var(--shadow-md);
+  pointer-events: auto;
+}
+
+.color-swatch-btn {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--color-border);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  flex-shrink: 0;
+}
+
+.color-swatch-btn:hover {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 2px rgba(67, 97, 238, 0.3);
+}
+
+/* ── Color Picker Popover ── */
+
+.color-picker-popover {
+  position: absolute;
+  z-index: 30;
+  transform: translateX(-50%);
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: var(--shadow-md);
+  pointer-events: auto;
+}
+
+.color-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.color-picker-popover .swatch {
+  width: 28px;
+  height: 28px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  position: relative;
+}
+
+.color-picker-popover .swatch.light {
+  border-color: #e2e8f0;
+}
+
+.color-picker-popover .swatch:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 2px rgba(67, 97, 238, 0.3);
+}
+
+.color-picker-popover .swatch.active {
+  box-shadow: 0 0 0 2px var(--color-primary, #4361ee);
+}
+
+.color-picker-popover .swatch.active::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.color-picker-popover .swatch.active.light::after {
+  background: rgba(0, 0, 0, 0.2);
+}

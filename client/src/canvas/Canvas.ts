@@ -53,6 +53,7 @@ export class Canvas {
       onSelectionChange: (ids) => {
         this.selectedIds = ids;
         this.inputHandler.setSelection(ids);
+        this.callbacks.onSelectionChange?.(ids);
       },
       onMoveSelection: (ids, dx, dy) => this.objectStore.moveObjects(ids, dx, dy),
       onResizeObject: (id, x, y, w, h) => this.objectStore.resizeObject(id, x, y, w, h),
@@ -271,6 +272,29 @@ export class Canvas {
 
   getViewportCenter() {
     return this.camera.screenToWorld(this.canvasEl.clientWidth / 2, this.canvasEl.clientHeight / 2);
+  }
+
+  getViewportSnapshot(): {
+    center: { x: number; y: number };
+    widthPx: number;
+    heightPx: number;
+    topLeftWorld: { x: number; y: number };
+    bottomRightWorld: { x: number; y: number };
+    scale: number;
+  } {
+    const widthPx = this.canvasEl.clientWidth;
+    const heightPx = this.canvasEl.clientHeight;
+    const center = this.getViewportCenter();
+    const topLeftWorld = this.camera.screenToWorld(0, 0);
+    const bottomRightWorld = this.camera.screenToWorld(widthPx, heightPx);
+    return {
+      center,
+      widthPx,
+      heightPx,
+      topLeftWorld,
+      bottomRightWorld,
+      scale: this.camera.scale,
+    };
   }
 
   getSelectedIds(): string[] {

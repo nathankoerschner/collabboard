@@ -6,14 +6,18 @@ import { getUser, getToken } from '../auth.js';
 import { navigateTo } from '../router.js';
 import { runAICommand, getBoard, renameBoard } from '../api.js';
 import { openBoardOptionsModal } from '../components/boardOptionsModal.js';
-import type { ShapeKind, ToolName } from '../types.js';
+import type { BoardObject, ShapeKind, ToolName } from '../types.js';
 import { SHAPE_DEFS } from '../board/ShapeDefs.js';
+import { SelectionToolbar } from '../canvas/SelectionToolbar.js';
+import { ColorPicker, STICKY_COLORS, SHAPE_COLORS } from '../canvas/ColorPicker.js';
 
 let boardManager: BoardManager | null = null;
 let canvas: Canvas | null = null;
 let cursorManager: CursorManager | null = null;
 let presencePanel: PresencePanel | null = null;
 let zoomInterval: ReturnType<typeof setInterval> | null = null;
+let selectionToolbar: SelectionToolbar | null = null;
+let colorPicker: ColorPicker | null = null;
 let aiPanelOpen = false;
 let aiSubmitting = false;
 
@@ -162,7 +166,10 @@ export const boardView = {
 
     const shapesBtn = document.getElementById('shapes-btn')!;
 
-    canvas = new Canvas(canvasEl, boardManager.getObjectStore(), cursorManager, {
+    const boardViewEl = document.getElementById('board-view')!;
+    const objectStore = boardManager.getObjectStore();
+
+    canvas = new Canvas(canvasEl, objectStore, cursorManager, {
       onToolChange: (tool) => {
         toolbar.querySelectorAll('.toolbar-btn[data-tool]').forEach((b) => b.classList.remove('active'));
         if (tool === 'shape') {
@@ -171,10 +178,69 @@ export const boardView = {
           toolbar.querySelector(`[data-tool="${tool}"]`)?.classList.add('active');
         }
       },
+      onSelectionChange: (ids) => {
+        const isTextEditing = !!canvas?.textEditor.getEditingId();
+        selectionToolbar?.update(ids, isTextEditing);
+        colorPicker?.close();
+      },
+    });
+
+    // ── Selection Toolbar + Color Picker ──
+    selectionToolbar = new SelectionToolbar(
+      boardViewEl,
+      canvas.camera,
+      () => {
+        const ids = canvas?.getSelectedIds() || [];
+        return ids.map((id) => objectStore.getObject(id)).filter((o): o is BoardObject => !!o);
+      },
+    );
+
+    colorPicker = new ColorPicker({
+      container: boardViewEl,
+      onSelect: (color) => {
+        const ids = canvas?.getSelectedIds() || [];
+        for (const id of ids) {
+          const obj = objectStore.getObject(id);
+          if (!obj || obj.type === 'connector') continue;
+          objectStore.updateColor(id, color);
+        }
+        // Refresh toolbar swatch
+        const isTextEditing = !!canvas?.textEditor.getEditingId();
+        selectionToolbar?.update(ids, isTextEditing);
+      },
+    });
+
+    selectionToolbar.setOnSwatchClick(() => {
+      if (colorPicker!.isOpen()) {
+        colorPicker!.close();
+        return;
+      }
+      const objects = (canvas?.getSelectedIds() || [])
+        .map((id) => objectStore.getObject(id))
+        .filter((o): o is BoardObject => !!o && o.type !== 'connector');
+      if (!objects.length) return;
+
+      const allSticky = objects.every((o) => o.type === 'sticky');
+      const colors = allSticky ? STICKY_COLORS : SHAPE_COLORS;
+      const activeColor = selectionToolbar!.getActiveColor();
+
+      colorPicker!.open(selectionToolbar!.getSwatchButton(), colors, activeColor);
+    });
+
+    // Click-away to close color picker
+    document.addEventListener('click', (e) => {
+      if (colorPicker?.isOpen() && !(e.target as HTMLElement).closest('.color-picker-popover') && !(e.target as HTMLElement).closest('.color-swatch-btn')) {
+        colorPicker.close();
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (colorPicker?.isOpen() && e.key === 'Escape') {
+        colorPicker.close();
+      }
     });
 
     // ── Shapes Drawer ──
-    const boardViewEl = document.getElementById('board-view')!;
 
     const shapesDrawer = document.createElement('div');
     shapesDrawer.className = 'shapes-drawer';
@@ -270,13 +336,19 @@ export const boardView = {
       (aiSpinner as HTMLElement).hidden = false;
 
       try {
-        const center = canvas!.getViewportCenter();
+        const viewport = canvas!.getViewportSnapshot();
         await runAICommand(boardId, {
           prompt: trimmedPrompt,
           viewportCenter: {
-            x: center.x,
-            y: center.y,
+            x: viewport.center.x,
+            y: viewport.center.y,
+            widthPx: viewport.widthPx,
+            heightPx: viewport.heightPx,
+            topLeftWorld: viewport.topLeftWorld,
+            bottomRightWorld: viewport.bottomRightWorld,
+            scale: viewport.scale,
           },
+          selectedObjectIds: canvas!.getSelectedIds(),
           userId: user?.id || (user as Record<string, unknown>)?.sub || 'anonymous',
         });
 
@@ -400,10 +472,14 @@ export const boardView = {
     }
     aiPanelOpen = false;
     aiSubmitting = false;
+    colorPicker?.destroy();
+    selectionToolbar?.destroy();
     presencePanel?.destroy();
     canvas?.destroy();
     cursorManager?.destroy();
     boardManager?.destroy();
+    colorPicker = null;
+    selectionToolbar = null;
     presencePanel = null;
     canvas = null;
     cursorManager = null;

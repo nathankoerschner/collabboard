@@ -173,6 +173,7 @@ export interface AttachResult {
 
 export interface CanvasCallbacks {
   onToolChange?: (tool: ToolName) => void;
+  onSelectionChange?: (ids: string[]) => void;
 }
 
 export interface InputHandlerCallbacks {
