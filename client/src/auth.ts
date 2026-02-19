@@ -29,6 +29,11 @@ export async function initAuth(): Promise<Clerk | null> {
     return null;
   }
 
+  // Production keys (pk_live_) need proxy since we don't have a custom domain
+  const isProduction = publishableKey.startsWith('pk_live_');
+  if (isProduction) {
+    window.__clerk_proxy_url = '/__clerk';
+  }
   clerk = new Clerk(publishableKey);
   await clerk.load();
   return clerk;

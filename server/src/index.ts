@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,6 +43,61 @@ const server = http.createServer(async (req, res) => {
     const clerkPublishableKey = process.env.CLERK_PUBLISHABLE_KEY || process.env.VITE_CLERK_PUBLISHABLE_KEY || null;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ clerkPublishableKey }));
+    return;
+  }
+
+  // Clerk Frontend API proxy — production instances need this when no custom domain is available
+  if (req.url?.startsWith('/__clerk')) {
+    const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+    if (!clerkSecretKey) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Clerk not configured' }));
+      return;
+    }
+
+    const targetPath = req.url.replace(/^\/__clerk/, '') || '/';
+    const proxyUrl = `https://${req.headers.host}/__clerk`;
+
+    // Collect request body
+    const bodyChunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => bodyChunks.push(chunk));
+    req.on('end', () => {
+      const body = Buffer.concat(bodyChunks);
+      const headers: Record<string, string> = {};
+      // Forward original headers
+      for (const [key, val] of Object.entries(req.headers)) {
+        if (val && key !== 'host' && key !== 'connection') {
+          headers[key] = Array.isArray(val) ? val.join(', ') : val;
+        }
+      }
+      headers['Host'] = 'frontend-api.clerk.dev';
+      headers['Clerk-Proxy-Url'] = proxyUrl;
+      headers['Clerk-Secret-Key'] = clerkSecretKey;
+      headers['X-Forwarded-For'] = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '';
+
+      const proxyReq = https.request(
+        {
+          hostname: 'frontend-api.clerk.dev',
+          port: 443,
+          path: targetPath,
+          method: req.method,
+          headers,
+        },
+        (proxyRes) => {
+          res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+          proxyRes.pipe(res);
+        },
+      );
+      proxyReq.on('error', (err) => {
+        console.error('Clerk proxy error:', err.message);
+        if (!res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Clerk proxy failed' }));
+        }
+      });
+      if (body.length > 0) proxyReq.write(body);
+      proxyReq.end();
+    });
     return;
   }
 
