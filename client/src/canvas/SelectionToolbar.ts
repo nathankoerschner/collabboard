@@ -47,7 +47,7 @@ export class SelectionToolbar {
     const objects = this.getSelectedObjects();
 
     // Hide for empty selection, connector-only, or text editing
-    const colorable = objects.filter((o) => o.type !== 'connector');
+    const colorable = objects.filter((o) => o.type !== 'connector' && o.type !== 'frame');
     if (!colorable.length || isTextEditing) {
       this.el.style.display = 'none';
       return;
@@ -77,7 +77,7 @@ export class SelectionToolbar {
   }
 
   getActiveColor(): string | null {
-    const objects = this.getSelectedObjects().filter((o) => o.type !== 'connector');
+    const objects = this.getSelectedObjects().filter((o) => o.type !== 'connector' && o.type !== 'frame');
     if (!objects.length) return null;
     const first = (objects[0] as { color?: string }).color || '#ffffff';
     const allSame = objects.every((o) => (o as { color?: string }).color === first);
@@ -99,7 +99,7 @@ export class SelectionToolbar {
   }
 
   private _reposition(): void {
-    const objects = this.getSelectedObjects().filter((o) => o.type !== 'connector');
+    const objects = this.getSelectedObjects().filter((o) => o.type !== 'connector' && o.type !== 'frame');
     if (!objects.length) return;
 
     const bounds = getSelectionBounds(objects);

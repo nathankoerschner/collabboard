@@ -175,6 +175,9 @@ export async function handleBoardRoutes(req: IncomingMessage, res: ServerRespons
     const body = await parseBody(req);
     const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
     if (!prompt) return json(res, 400, { error: 'prompt required' });
+    const selectedObjectIds = Array.isArray(body.selectedObjectIds)
+      ? body.selectedObjectIds.filter((id): id is string => typeof id === 'string')
+      : undefined;
 
     const requestUserId = userId || (body.userId as string) || 'anonymous';
     const limiter = checkAIRateLimit(`${requestUserId}:${id}`);
@@ -191,6 +194,7 @@ export async function handleBoardRoutes(req: IncomingMessage, res: ServerRespons
         boardId: id,
         prompt,
         viewportCenter: body.viewportCenter,
+        selectedObjectIds,
         userId: requestUserId,
       });
       return json(res, 200, result);

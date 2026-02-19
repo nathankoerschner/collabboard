@@ -257,7 +257,6 @@ export class BoardToolRunner {
     const obj = {
       ...this._createBase('frame', placement.x, placement.y, args.width as number, args.height as number),
       title: args.title || 'Frame',
-      color: 'gray',
       children: [],
     };
 
@@ -421,6 +420,7 @@ export class BoardToolRunner {
     const obj = this.objects.get(args.objectId as string);
     if (!obj) return { ok: false, error: 'Object not found' };
     if (obj.type === 'connector') return { ok: false, error: 'Connectors do not support palette color updates' };
+    if (obj.type === 'frame') return { ok: false, error: 'Frames do not support color changes' };
 
     this._setObject({ ...obj, color: sanitizeColor(args.color, (obj.color as string) || 'gray') });
     return { ok: true };

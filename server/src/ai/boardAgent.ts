@@ -17,26 +17,11 @@ function buildSystemPrompt(): string {
     'Never invent IDs. Use IDs returned from tool results.',
     'Prefer getBoardState when object lookup is needed.',
     'Respect viewportCenter when placing new content; omit x/y to use deterministic placement near viewport center.',
-    'Keep commands concise and deterministic.',
-    '',
-    'LAYOUT PATTERN: When creating structured boards (SWOT, retro, pros/cons, kanban, 2x2 matrix, etc.):',
-    '1. Create ONE outer frame first to contain the full template layout.',
-    '2. Create section/category frames INSIDE the outer frame, sized for user input.',
-    '3. Use frame titles for labels (e.g. "Strengths", "What went well").',
-    '4. Do NOT create seed stickies or prefilled notes unless the user explicitly asks for content.',
-    '5. Frame title bar height is 32px; keep this reserved for label/selection behavior.',
-    '6. Sticky-fit sizing rule (deterministic): size each input section frame to fit 6 default stickies in a 3x2 grid with fixed 24px gaps.',
-    '7. Use sticky size 150x150, so required note area is 498x324 (3*150 + 2*24 by 2*150 + 24).',
-    '8. Include 24px inner padding on all sides of that note area and keep it below the 32px title bar.',
-    '9. Therefore, use minimum ACTUAL section frame size 546x404 to guarantee the 3x2 sticky layout fits.',
-    '10. Placement rule: use ACTUAL frame dimensions (outer bounds) for all x/y placement and containment math.',
-    '11. Deterministic spacing rule: use fixed 24px gaps between sibling frames and fixed 24px parent padding.',
-    '12. Deterministic ordering rule: place sibling frames left-to-right, then top-to-bottom, with aligned top edges per row.',
-    '13. For N equal columns inside a parent: columnWidth = floor((parentUsableWidth - (N - 1) * 24) / N).',
-    '14. Outside-frame wrap rule: include ALL generated section-fill frames when computing outer bounds (every inner frame created for sections).',
-    '15. Account for the outer frame title bar at the top: reserve 32px title bar + 24px top padding above inner content.',
-    '16. Compute outer bounds deterministically from inner-frame extents: left = minInnerX - 24, top = minInnerY - (32 + 24), right = maxInnerRight + 24, bottom = maxInnerBottom + 24.',
-    '17. Keep every inner frame fully within the parent usable area after applying the fixed-gap math.',
+    'Interpret user-specified coordinates (e.g. "position 100, 200") as viewport pixel coordinates from the caller\'s visible top-left unless the user explicitly says absolute/world coordinates.',
+    'Keep commands concise.',
+    'If selectedObjectIds is provided in the user payload and the request references "selected", operate on those IDs only.',
+    'For structured templates (SWOT/retro/kanban/matrix), create one outer frame plus labeled inner section frames and avoid seed content unless asked.',
+    'When creating frames, follow the deterministic sizing/spacing rules from the tool descriptions.',
   ].join('\n');
 }
 
@@ -44,7 +29,17 @@ interface AICommandInput {
   boardId: string;
   prompt: string;
   viewportCenter: unknown;
+  selectedObjectIds?: string[];
   userId: string;
+}
+
+interface ViewportContext {
+  center: { x: number; y: number };
+  widthPx: number | null;
+  heightPx: number | null;
+  topLeftWorld: { x: number; y: number } | null;
+  bottomRightWorld: { x: number; y: number } | null;
+  scale: number | null;
 }
 
 interface AICommandResult {
@@ -56,10 +51,27 @@ interface AICommandResult {
   errors: string[];
 }
 
-export async function executeBoardAICommand({ boardId, prompt, viewportCenter, userId }: AICommandInput): Promise<AICommandResult> {
+function normalizeViewportContext(input: unknown): ViewportContext {
+  const center = normalizeViewportCenter(input);
+  const obj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+  const widthPx = typeof obj.widthPx === 'number' && Number.isFinite(obj.widthPx) && obj.widthPx > 0 ? obj.widthPx : null;
+  const heightPx = typeof obj.heightPx === 'number' && Number.isFinite(obj.heightPx) && obj.heightPx > 0 ? obj.heightPx : null;
+  const scale = typeof obj.scale === 'number' && Number.isFinite(obj.scale) && obj.scale > 0 ? obj.scale : null;
+  const topLeft = obj.topLeftWorld && typeof obj.topLeftWorld === 'object' ? obj.topLeftWorld as Record<string, unknown> : null;
+  const bottomRight = obj.bottomRightWorld && typeof obj.bottomRightWorld === 'object' ? obj.bottomRightWorld as Record<string, unknown> : null;
+  const topLeftWorld = topLeft && typeof topLeft.x === 'number' && typeof topLeft.y === 'number'
+    ? { x: topLeft.x, y: topLeft.y }
+    : null;
+  const bottomRightWorld = bottomRight && typeof bottomRight.x === 'number' && typeof bottomRight.y === 'number'
+    ? { x: bottomRight.x, y: bottomRight.y }
+    : null;
+  return { center, widthPx, heightPx, topLeftWorld, bottomRightWorld, scale };
+}
+
+export async function executeBoardAICommand({ boardId, prompt, viewportCenter, selectedObjectIds, userId }: AICommandInput): Promise<AICommandResult> {
   const startedAt = Date.now();
-  const normalizedViewport = normalizeViewportCenter(viewportCenter);
-  const traceCtx = await startAITrace({ boardId, userId, prompt, viewportCenter: normalizedViewport });
+  const viewport = normalizeViewportContext(viewportCenter);
+  const traceCtx = await startAITrace({ boardId, userId, prompt, viewportCenter: viewport });
   const errors: string[] = [];
   let completed = false;
   let mutationSummary = {
@@ -76,7 +88,7 @@ export async function executeBoardAICommand({ boardId, prompt, viewportCenter, u
     }
 
     const toolRunner = BoardToolRunner.fromYDoc(yDoc, {
-      viewportCenter: normalizedViewport,
+      viewportCenter: viewport.center,
       actorId: `ai:${userId || 'anonymous'}`,
     });
 
@@ -101,7 +113,8 @@ export async function executeBoardAICommand({ boardId, prompt, viewportCenter, u
           new SystemMessage(buildSystemPrompt()),
           new HumanMessage(JSON.stringify({
             prompt,
-            viewportCenter: normalizedViewport,
+            viewportCenter: viewport,
+            selectedObjectIds: selectedObjectIds || [],
           })),
         ],
       },
@@ -119,7 +132,7 @@ export async function executeBoardAICommand({ boardId, prompt, viewportCenter, u
     await recordAIError(traceCtx, {
       message,
       stack: (err as Error)?.stack,
-      input: { boardId, prompt, viewportCenter: normalizedViewport },
+      input: { boardId, prompt, viewportCenter: viewport },
       metadata: { boardId, userId },
     });
     throw err;

@@ -282,6 +282,16 @@
 .toolbar-btn.ai-processing {
   background: rgba(67, 97, 238, 0.12);
   color: var(--color-primary);
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+.toolbar-btn.ai-processing.ai-stopping {
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.toolbar-btn.ai-processing.ai-stopping svg {
+  animation-duration: 0.5s;
 }
 
 /* ── AI Toast ── */

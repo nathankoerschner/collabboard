@@ -189,7 +189,7 @@ export const boardView = {
         const ids = canvas?.getSelectedIds() || [];
         for (const id of ids) {
           const obj = objectStore.getObject(id);
-          if (!obj || obj.type === 'connector') continue;
+          if (!obj || obj.type === 'connector' || obj.type === 'frame') continue;
           objectStore.updateColor(id, color);
         }
         // Refresh toolbar swatch
@@ -205,7 +205,7 @@ export const boardView = {
       }
       const objects = (canvas?.getSelectedIds() || [])
         .map((id) => objectStore.getObject(id))
-        .filter((o): o is BoardObject => !!o && o.type !== 'connector');
+        .filter((o): o is BoardObject => !!o && o.type !== 'connector' && o.type !== 'frame');
       if (!objects.length) return;
 
       const allSticky = objects.every((o) => o.type === 'sticky');
@@ -389,7 +389,18 @@ export const boardView = {
         showToast((err as Error)?.message || 'AI command failed');
       } finally {
         aiSubmitting = false;
-        aiToggleBtn?.classList.remove('ai-processing');
+        // Fade out highlight immediately, let spin finish its current cycle
+        if (aiToggleBtn) {
+          aiToggleBtn.classList.add('ai-stopping');
+          const svg = aiToggleBtn.querySelector('svg');
+          const onCycleEnd = () => {
+            aiToggleBtn!.classList.remove('ai-processing', 'ai-stopping');
+            svg?.removeEventListener('animationiteration', onCycleEnd);
+          };
+          svg?.addEventListener('animationiteration', onCycleEnd);
+          // Safety fallback if the event doesn't fire (e.g. tab hidden)
+          setTimeout(onCycleEnd, 2000);
+        }
       }
     };
 

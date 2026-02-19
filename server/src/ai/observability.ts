@@ -7,6 +7,12 @@ interface TraceContext {
   redacted?: boolean;
 }
 
+function background(task: Promise<unknown>, label: string): void {
+  void task.catch((err: unknown) => {
+    console.warn(`${label}:`, (err as Error)?.message || err);
+  });
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let runTreeCtorPromise: Promise<any> | null = null;
 
@@ -46,9 +52,9 @@ export async function startAITrace({ boardId, userId, prompt, viewportCenter }: 
         metadata: { boardId, userId: userId || 'anonymous', component: 'board-ai-agent' },
       },
     });
-    await trace.postRun();
+    background(trace.postRun(), 'LangSmith trace post failed');
 
-    const rootSpan = await trace.createChild({
+    const rootSpan = trace.createChild({
       name: 'ai_command_execution',
       run_type: 'chain',
       inputs: redacted ? { redacted: true } : { prompt, viewportCenter },
@@ -56,7 +62,7 @@ export async function startAITrace({ boardId, userId, prompt, viewportCenter }: 
         metadata: { boardId, viewportCenter },
       },
     });
-    await rootSpan.postRun();
+    background(rootSpan.postRun(), 'LangSmith root span post failed');
 
     return { enabled: true, trace, rootSpan, redacted };
   } catch (err: unknown) {
