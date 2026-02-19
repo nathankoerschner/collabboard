@@ -138,12 +138,11 @@ export class Renderer {
     if (!def) return;
 
     const fill = this._color(obj.color, '#bfdbfe');
-    const stroke = this._color(obj.strokeColor, '#64748b');
 
     this._drawRotatedBox(ctx, obj, (lx, ly, w, h) => {
       ctx.fillStyle = fill;
-      ctx.strokeStyle = stroke;
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'transparent';
+      ctx.lineWidth = 0;
       def.draw(ctx, lx, ly, w, h);
     });
   }
