@@ -6,6 +6,7 @@ import {
   normalizeAngle,
   normalizeViewportCenter,
   sanitizeColor,
+  TEMPLATE_TYPES,
   validateToolArgs,
 } from './schema.js';
 import type { Point } from './schema.js';
@@ -41,6 +42,26 @@ interface ToolCallEntry {
   toolName: string;
   args: Record<string, unknown>;
   result: unknown;
+}
+
+interface CompactObject {
+  id: unknown;
+  type: unknown;
+  shapeKind?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  color?: string;
+  text?: string;
+  content?: string;
+  title?: string;
+  fromId?: unknown;
+  toId?: unknown;
+  fromPoint?: unknown;
+  toPoint?: unknown;
+  style?: unknown;
 }
 
 export class BoardToolRunner {
@@ -210,11 +231,12 @@ export class BoardToolRunner {
       ? this._nextPlacement(args.width as number, args.height as number)
       : { x: args.x as number, y: args.y as number };
 
-    const type = args.type === 'ellipse' ? 'ellipse' : 'rectangle';
-    const defaults = type === 'ellipse' ? { color: 'teal' } : { color: 'blue' };
+    const shapeKind = (args.shapeKind as string) || 'rectangle';
+    const defaultColor = (shapeKind === 'ellipse' || shapeKind === 'circle') ? 'teal' : 'blue';
     const obj = {
-      ...this._createBase(type, placement.x, placement.y, args.width as number, args.height as number),
-      color: sanitizeColor(args.color, defaults.color),
+      ...this._createBase('shape', placement.x, placement.y, args.width as number, args.height as number),
+      shapeKind,
+      color: sanitizeColor(args.color, defaultColor),
       strokeColor: 'gray',
     };
 
@@ -365,35 +387,237 @@ export class BoardToolRunner {
     return this.getCompactBoardState();
   }
 
+  _toCompactObject(obj: Record<string, unknown>): CompactObject {
+    return {
+      id: obj.id,
+      type: obj.type,
+      x: clampNumber(obj.x, -100000, 100000, 0),
+      y: clampNumber(obj.y, -100000, 100000, 0),
+      width: clampNumber(obj.width, 0, 100000, 0),
+      height: clampNumber(obj.height, 0, 100000, 0),
+      rotation: normalizeAngle(obj.rotation || 0),
+      shapeKind: obj.type === 'shape' && typeof obj.shapeKind === 'string' ? obj.shapeKind : undefined,
+      color: typeof obj.color === 'string' ? obj.color : undefined,
+      text: obj.type === 'sticky' ? clampText(obj.text || '', 160) : undefined,
+      content: obj.type === 'text' ? clampText(obj.content || '', 160) : undefined,
+      title: obj.type === 'frame' ? clampText(obj.title || '', 80) : undefined,
+      fromId: obj.type === 'connector' ? obj.fromId : undefined,
+      toId: obj.type === 'connector' ? obj.toId : undefined,
+      fromPoint: obj.type === 'connector' ? obj.fromPoint : undefined,
+      toPoint: obj.type === 'connector' ? obj.toPoint : undefined,
+      style: obj.type === 'connector' ? obj.style : undefined,
+    };
+  }
+
+  _runBatch(raw: Record<string, unknown>, allowedToolNames: readonly string[]): {
+    results: Array<{ toolName: string; result?: unknown; error?: string }>;
+    okCount: number;
+    errorCount: number;
+  } {
+    const args = validateToolArgs('createObjectsBatch', raw);
+    const operations = (args.operations as Array<{ toolName: string; args: Record<string, unknown> }>) || [];
+    const results: Array<{ toolName: string; result?: unknown; error?: string }> = [];
+    let okCount = 0;
+    let errorCount = 0;
+
+    for (const op of operations) {
+      if (!allowedToolNames.includes(op.toolName)) {
+        results.push({ toolName: op.toolName, error: `Unsupported tool in batch: ${op.toolName}` });
+        errorCount += 1;
+        continue;
+      }
+
+      try {
+        const result = this.invoke(op.toolName, op.args || {});
+        results.push({ toolName: op.toolName, result });
+        okCount += 1;
+      } catch (err: unknown) {
+        results.push({ toolName: op.toolName, error: (err as Error).message });
+        errorCount += 1;
+      }
+    }
+
+    return { results, okCount, errorCount };
+  }
+
   getCompactBoardState(): unknown {
     const objects = [];
     for (const id of this.order) {
       const obj = this.objects.get(id);
       if (!obj) continue;
-      objects.push({
-        id: obj.id,
-        type: obj.type,
-        x: clampNumber(obj.x, -100000, 100000, 0),
-        y: clampNumber(obj.y, -100000, 100000, 0),
-        width: clampNumber(obj.width, 0, 100000, 0),
-        height: clampNumber(obj.height, 0, 100000, 0),
-        rotation: normalizeAngle(obj.rotation || 0),
-        color: typeof obj.color === 'string' ? obj.color : undefined,
-        text: obj.type === 'sticky' ? clampText(obj.text || '', 160) : undefined,
-        content: obj.type === 'text' ? clampText(obj.content || '', 160) : undefined,
-        title: obj.type === 'frame' ? clampText(obj.title || '', 80) : undefined,
-        fromId: obj.type === 'connector' ? obj.fromId : undefined,
-        toId: obj.type === 'connector' ? obj.toId : undefined,
-        fromPoint: obj.type === 'connector' ? obj.fromPoint : undefined,
-        toPoint: obj.type === 'connector' ? obj.toPoint : undefined,
-        style: obj.type === 'connector' ? obj.style : undefined,
-      });
+      objects.push(this._toCompactObject(obj));
     }
 
     return {
       objectCount: objects.length,
       viewportCenter: this.viewportCenter,
       objects,
+    };
+  }
+
+  getObjectById(raw: Record<string, unknown> = {}): { found: boolean; object?: CompactObject } {
+    const args = validateToolArgs('getObjectById', raw);
+    const obj = this.objects.get(args.objectId as string);
+    if (!obj) return { found: false };
+    return { found: true, object: this._toCompactObject(obj) };
+  }
+
+  listObjectsByType(raw: Record<string, unknown> = {}): { count: number; objects: CompactObject[] } {
+    const args = validateToolArgs('listObjectsByType', raw);
+    const type = args.type as string | null;
+    const limit = args.limit as number;
+    const objects: CompactObject[] = [];
+
+    for (const id of this.order) {
+      const obj = this.objects.get(id);
+      if (!obj) continue;
+      if (type && obj.type !== type) continue;
+      objects.push(this._toCompactObject(obj));
+      if (objects.length >= limit) break;
+    }
+
+    return { count: objects.length, objects };
+  }
+
+  getObjectsInViewport(raw: Record<string, unknown> = {}): { count: number; viewport: Record<string, number>; objects: CompactObject[] } {
+    const args = validateToolArgs('getObjectsInViewport', raw);
+    const cx = args.centerX as number;
+    const cy = args.centerY as number;
+    const width = args.width as number;
+    const height = args.height as number;
+    const limit = args.limit as number;
+
+    const left = cx - width / 2;
+    const top = cy - height / 2;
+    const right = left + width;
+    const bottom = top + height;
+
+    const objects: CompactObject[] = [];
+    for (const id of this.order) {
+      const obj = this.objects.get(id);
+      if (!obj) continue;
+
+      const x = clampNumber(obj.x, -100000, 100000, 0);
+      const y = clampNumber(obj.y, -100000, 100000, 0);
+      const w = clampNumber(obj.width, 0, 100000, 0);
+      const h = clampNumber(obj.height, 0, 100000, 0);
+      const intersects = x <= right && x + w >= left && y <= bottom && y + h >= top;
+      if (!intersects) continue;
+
+      objects.push(this._toCompactObject(obj));
+      if (objects.length >= limit) break;
+    }
+
+    return {
+      count: objects.length,
+      viewport: { centerX: cx, centerY: cy, width, height },
+      objects,
+    };
+  }
+
+  createObjectsBatch(raw: Record<string, unknown> = {}): {
+    results: Array<{ toolName: string; result?: unknown; error?: string }>;
+    okCount: number;
+    errorCount: number;
+  } {
+    const args = validateToolArgs('createObjectsBatch', raw);
+    return this._runBatch(args, ['createStickyNote', 'createShape', 'createFrame', 'createConnector', 'createText']);
+  }
+
+  updateObjectsBatch(raw: Record<string, unknown> = {}): {
+    results: Array<{ toolName: string; result?: unknown; error?: string }>;
+    okCount: number;
+    errorCount: number;
+  } {
+    const args = validateToolArgs('updateObjectsBatch', raw);
+    return this._runBatch(args, ['moveObject', 'resizeObject', 'updateText', 'changeColor', 'rotateObject']);
+  }
+
+  deleteObjectsBatch(raw: Record<string, unknown> = {}): {
+    results: Array<{ toolName: string; result?: unknown; error?: string }>;
+    okCount: number;
+    errorCount: number;
+  } {
+    const args = validateToolArgs('deleteObjectsBatch', raw);
+    return this._runBatch(args, ['deleteObject']);
+  }
+
+  createStructuredTemplate(raw: Record<string, unknown> = {}): {
+    template: string;
+    outerFrameId: string;
+    sectionFrameIds: string[];
+  } {
+    const args = validateToolArgs('createStructuredTemplate', raw);
+    const template = (TEMPLATE_TYPES as readonly string[]).includes(args.template as string) ? (args.template as string) : 'swot';
+    const title = clampText(args.title, 120, template.toUpperCase().replace('_', ' '));
+    const sectionW = 546;
+    const sectionH = 404;
+    const gap = 24;
+
+    let sectionTitles: string[] = [];
+    let cols = 2;
+    if (template === 'swot') {
+      sectionTitles = ['Strengths', 'Weaknesses', 'Opportunities', 'Threats'];
+      cols = 2;
+    } else if (template === 'kanban') {
+      sectionTitles = ['Backlog', 'Todo', 'In Progress', 'Done'];
+      cols = 4;
+    } else if (template === 'retrospective') {
+      sectionTitles = ['Went Well', 'To Improve', 'Action Items'];
+      cols = 3;
+    } else if (template === 'pros_cons') {
+      sectionTitles = ['Pros', 'Cons'];
+      cols = 2;
+    } else {
+      sectionTitles = ['Q1', 'Q2', 'Q3', 'Q4'];
+      cols = 2;
+    }
+
+    const customTitles = (args.sectionTitles as string[]) || [];
+    if (customTitles.length) {
+      // Explicit section titles should determine the exact number of sections.
+      sectionTitles = [...customTitles];
+      cols = Math.min(cols, sectionTitles.length) || 1;
+    }
+
+    const rows = Math.ceil(sectionTitles.length / cols);
+    const contentWidth = cols * sectionW + (cols - 1) * gap;
+    const contentHeight = rows * sectionH + (rows - 1) * gap;
+    const startX = args.x == null ? Math.round(this.viewportCenter.x - contentWidth / 2) : (args.x as number);
+    const startY = args.y == null ? Math.round(this.viewportCenter.y - contentHeight / 2) : (args.y as number);
+
+    const sectionFrameIds: string[] = [];
+    for (let i = 0; i < sectionTitles.length; i++) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = startX + col * (sectionW + gap);
+      const y = startY + row * (sectionH + gap);
+      const section = this.createFrame({
+        title: sectionTitles[i],
+        x,
+        y,
+        width: sectionW,
+        height: sectionH,
+      });
+      sectionFrameIds.push(section.id);
+    }
+
+    const minInnerX = startX;
+    const minInnerY = startY;
+    const maxInnerRight = startX + contentWidth;
+    const maxInnerBottom = startY + contentHeight;
+    const outer = this.createFrame({
+      title: title || 'Template',
+      x: Math.round(minInnerX - FRAME_SIDE_PADDING),
+      y: Math.round(minInnerY - (FRAME_TITLE_BAR_HEIGHT + FRAME_TOP_PADDING)),
+      width: Math.round(maxInnerRight + FRAME_SIDE_PADDING - (minInnerX - FRAME_SIDE_PADDING)),
+      height: Math.round(maxInnerBottom + FRAME_SIDE_PADDING - (minInnerY - (FRAME_TITLE_BAR_HEIGHT + FRAME_TOP_PADDING))),
+    });
+
+    return {
+      template,
+      outerFrameId: outer.id,
+      sectionFrameIds,
     };
   }
 
@@ -407,10 +631,11 @@ export class BoardToolRunner {
 
     const outerTitlePattern = /(analysis|template|board|matrix|kanban|retro|swot|container|outer)/i;
     const titledCandidates = generatedFrames.filter((frame) => outerTitlePattern.test(String(frame.title || '')));
+    if (!titledCandidates.length) return;
 
-    let outerFrame = (titledCandidates.length ? titledCandidates : generatedFrames)[0]!;
+    let outerFrame = titledCandidates[0]!;
     let maxArea = -Infinity;
-    for (const frame of titledCandidates.length ? titledCandidates : generatedFrames) {
+    for (const frame of titledCandidates) {
       const area = Number(frame.width || 0) * Number(frame.height || 0);
       if (area > maxArea) {
         maxArea = area;
@@ -460,7 +685,76 @@ export class BoardToolRunner {
     });
   }
 
+  _framesOverlap(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+    const ax = Number(a.x || 0);
+    const ay = Number(a.y || 0);
+    const aw = Number(a.width || 0);
+    const ah = Number(a.height || 0);
+    const bx = Number(b.x || 0);
+    const by = Number(b.y || 0);
+    const bw = Number(b.width || 0);
+    const bh = Number(b.height || 0);
+
+    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+  }
+
+  _normalizeGeneratedSwotQuadrants(): void {
+    const generatedFrames = [...this.createdIds]
+      .map((id) => this.objects.get(id))
+      .filter((obj): obj is Record<string, unknown> => !!obj && obj.type === 'frame');
+    if (generatedFrames.length < 4) return;
+
+    const byTitle = new Map(generatedFrames.map((frame) => [String(frame.title || '').trim().toLowerCase(), frame]));
+    const strengths = byTitle.get('strengths');
+    const weaknesses = byTitle.get('weaknesses');
+    const opportunities = byTitle.get('opportunities');
+    const threats = byTitle.get('threats');
+    if (!strengths || !weaknesses || !opportunities || !threats) return;
+
+    const quadrants = [strengths, weaknesses, opportunities, threats];
+    let hasOverlap = false;
+    for (let i = 0; i < quadrants.length; i++) {
+      for (let j = i + 1; j < quadrants.length; j++) {
+        if (this._framesOverlap(quadrants[i]!, quadrants[j]!)) {
+          hasOverlap = true;
+          break;
+        }
+      }
+      if (hasOverlap) break;
+    }
+    if (!hasOverlap) return;
+
+    const widths = quadrants.map((frame) => Number(frame.width || 0)).filter((width) => Number.isFinite(width) && width > 0);
+    const heights = quadrants.map((frame) => Number(frame.height || 0)).filter((height) => Number.isFinite(height) && height > 0);
+    const quadWidth = widths.length ? Math.max(...widths) : 546;
+    const quadHeight = heights.length ? Math.max(...heights) : 404;
+
+    const gap = 24;
+    const contentWidth = quadWidth * 2 + gap;
+    const contentHeight = quadHeight * 2 + gap;
+    const leftX = Math.round(this.viewportCenter.x - contentWidth / 2);
+    const topY = Math.round(this.viewportCenter.y - contentHeight / 2);
+    const rightX = leftX + quadWidth + gap;
+    const bottomY = topY + quadHeight + gap;
+
+    const updates: Array<{ frame: Record<string, unknown>; x: number; y: number }> = [
+      { frame: strengths, x: leftX, y: topY },
+      { frame: weaknesses, x: rightX, y: topY },
+      { frame: opportunities, x: leftX, y: bottomY },
+      { frame: threats, x: rightX, y: bottomY },
+    ];
+
+    for (const { frame, x, y } of updates) {
+      this._setObject({
+        ...frame,
+        x,
+        y,
+      });
+    }
+  }
+
   applyToDoc(): { createdIds: string[]; updatedIds: string[]; deletedIds: string[]; toolCalls: ToolCallEntry[] } {
+    this._normalizeGeneratedSwotQuadrants();
     this._normalizeGeneratedFrameWrap();
 
     const objectsMap = this.doc.getMap('objects');

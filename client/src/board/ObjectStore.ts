@@ -38,6 +38,30 @@ export class ObjectStore {
     this.zOrder = doc.getArray('zOrder') as Y.Array<string>;
   }
 
+  migrateV1Shapes(): void {
+    const toMigrate: string[] = [];
+    this.objectsMap.forEach((_yObj, id) => {
+      const yObj = this.objectsMap.get(id);
+      if (!yObj) return;
+      const type = yObj.get('type');
+      if (type === 'rectangle' || type === 'ellipse') {
+        toMigrate.push(id);
+      }
+    });
+
+    if (!toMigrate.length) return;
+
+    this.doc.transact(() => {
+      for (const id of toMigrate) {
+        const yObj = this.objectsMap.get(id);
+        if (!yObj) continue;
+        const oldType = yObj.get('type') as string;
+        yObj.set('type', 'shape');
+        yObj.set('shapeKind', oldType); // 'rectangle' or 'ellipse'
+      }
+    });
+  }
+
   createObject(type: ObjectType, x: number, y: number, width: number, height: number, extra: Record<string, unknown> = {}): BoardObject {
     const id = nanoid(12);
     const obj = this._buildDefaultObject(id, type, x, y, width, height, extra);
@@ -467,6 +491,15 @@ export class ObjectStore {
         title: 'Frame',
         color: 'gray',
         children: [],
+        ...extra,
+      } as BoardObject;
+    }
+    if (type === 'shape') {
+      return {
+        ...base,
+        shapeKind: (extra.shapeKind as string) || 'rectangle',
+        color: 'blue',
+        strokeColor: 'gray',
         ...extra,
       } as BoardObject;
     }

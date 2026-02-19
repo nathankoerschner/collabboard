@@ -27,6 +27,9 @@ export class BoardManager {
     const wsUrl = `${protocol}//${location.host}/ws`;
 
     this.persistence = new IndexeddbPersistence(`collabboard-${boardId}`, this.doc);
+    this.persistence.once('synced', () => {
+      this.objectStore.migrateV1Shapes();
+    });
 
     this.provider = new WebsocketProvider(wsUrl, boardId, this.doc, {
       params: options.token ? { token: options.token } : {},

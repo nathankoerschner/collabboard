@@ -388,3 +388,50 @@
   font-size: 0.75rem;
   background: #fff;
 }
+
+/* ── Shapes Drawer ── */
+
+.shapes-drawer {
+  position: absolute;
+  z-index: 25;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  padding: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.shapes-drawer.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+
+.shapes-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+
+.shape-icon-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-muted, #64748b);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.shape-icon-btn:hover {
+  background: #f1f5f9;
+  color: var(--color-text, #1e293b);
+}

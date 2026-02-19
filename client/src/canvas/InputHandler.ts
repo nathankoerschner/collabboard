@@ -1,4 +1,5 @@
-import type { BoardObject, Bounds, InputHandlerCallbacks, Point, ToolName } from '../types.js';
+import type { BoardObject, Bounds, InputHandlerCallbacks, Point, ShapeKind, ToolName } from '../types.js';
+import { SHAPE_DEFS } from '../board/ShapeDefs.js';
 import {
   hitTestHandle,
   hitTestObjects,
@@ -7,7 +8,7 @@ import {
 import { getConnectorEndpoints, getObjectAABB, getSelectionBounds } from './Geometry.js';
 import { Camera } from './Camera.js';
 
-type DragType = 'pan' | 'move' | 'resize' | 'rotate' | 'marquee' | 'connector-end' | null;
+type DragType = 'pan' | 'move' | 'resize' | 'rotate' | 'marquee' | 'connector-end' | 'shape-create' | null;
 
 export class InputHandler {
   canvasEl: HTMLCanvasElement;
@@ -33,6 +34,8 @@ export class InputHandler {
   rotationStartAngle = 0;
   rotationAppliedDelta = 0;
   activeConnectorId: string | null = null;
+  activeShapeKind: ShapeKind | null = null;
+  shapePreviewRect: Bounds | null = null;
 
   private readonly _onMouseDown: (e: MouseEvent) => void;
   private readonly _onMouseMove: (e: MouseEvent) => void;
@@ -65,6 +68,18 @@ export class InputHandler {
   setTool(tool: ToolName): void {
     this.tool = tool;
     this.canvasEl.style.cursor = tool === 'select' ? 'default' : 'crosshair';
+    if (tool !== 'shape') {
+      this.activeShapeKind = null;
+      this.shapePreviewRect = null;
+    }
+  }
+
+  setShapeKind(kind: ShapeKind): void {
+    this.activeShapeKind = kind;
+  }
+
+  getShapePreviewRect(): Bounds | null {
+    return this.shapePreviewRect;
   }
 
   setSelection(ids: string[]): void {
@@ -89,6 +104,15 @@ export class InputHandler {
 
   private _handleMouseDown(e: MouseEvent): void {
     const { sx, sy, wx, wy } = this._eventWorld(e);
+
+    if (this.tool === 'shape' && this.activeShapeKind) {
+      this.dragging = true;
+      this.dragType = 'shape-create';
+      this.dragStartX = wx;
+      this.dragStartY = wy;
+      this.shapePreviewRect = { x: wx, y: wy, width: 0, height: 0 };
+      return;
+    }
 
     if (this.tool !== 'select' && this.tool !== 'connector') {
       const created = this._createForTool(wx, wy);
@@ -247,6 +271,15 @@ export class InputHandler {
       return;
     }
 
+    if (this.dragType === 'shape-create') {
+      const sx = Math.min(this.dragStartX, wx);
+      const sy = Math.min(this.dragStartY, wy);
+      const sw = Math.abs(wx - this.dragStartX);
+      const sh = Math.abs(wy - this.dragStartY);
+      this.shapePreviewRect = { x: sx, y: sy, width: sw, height: sh };
+      return;
+    }
+
     if (this.dragType === 'connector-end' && this.activeConnectorId) {
       const attach = this.callbacks.onResolveAttach?.(wx, wy, this.activeConnectorId);
       if (attach) {
@@ -294,6 +327,39 @@ export class InputHandler {
   }
 
   private _handleMouseUp(e: MouseEvent): void {
+    if (this.dragType === 'shape-create' && this.activeShapeKind) {
+      const def = SHAPE_DEFS.get(this.activeShapeKind);
+      const preview = this.shapePreviewRect;
+      const dragDist = preview ? Math.max(preview.width, preview.height) : 0;
+
+      let x: number, y: number, w: number, h: number;
+      if (dragDist < 5 || !preview) {
+        // Click: create at default size centered on click
+        const dw = def?.defaultWidth ?? 120;
+        const dh = def?.defaultHeight ?? 120;
+        x = this.dragStartX - dw / 2;
+        y = this.dragStartY - dh / 2;
+        w = dw;
+        h = dh;
+      } else {
+        x = preview.x;
+        y = preview.y;
+        w = preview.width;
+        h = preview.height;
+      }
+
+      const created = this.callbacks.onCreate?.('shape', x, y, w, h, { shapeKind: this.activeShapeKind });
+      if (created) {
+        this._setSelection([created.id]);
+      }
+
+      this.shapePreviewRect = null;
+      this.callbacks.onToolAutoReset?.('select');
+      this.dragging = false;
+      this.dragType = null;
+      return;
+    }
+
     if (this.dragType === 'marquee' && this.marqueeRect) {
       const ids = this.marqueeHoveredIds;
       if (ids.length) {
@@ -376,8 +442,6 @@ export class InputHandler {
     const keyMap: Record<string, ToolName> = {
       v: 'select',
       s: 'sticky',
-      r: 'rectangle',
-      e: 'ellipse',
       t: 'text',
       f: 'frame',
       c: 'connector',

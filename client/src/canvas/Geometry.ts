@@ -1,4 +1,5 @@
-import type { BoardObject, Bounds, Point, Port } from '../types.js';
+import type { BoardObject, Bounds, Point, Port, ShapeObject } from '../types.js';
+import { SHAPE_DEFS } from '../board/ShapeDefs.js';
 
 export const ROTATION_HANDLE_OFFSET = 28;
 
@@ -100,6 +101,23 @@ export function pointInRotatedRect(px: number, py: number, obj: BoardObject): bo
   return local.x >= obj.x && local.x <= obj.x + obj.width && local.y >= obj.y && local.y <= obj.y + obj.height;
 }
 
+export function pointInPath2D(px: number, py: number, path: Path2D): boolean {
+  // Use an offscreen canvas to test point in path
+  const c = _getTestCtx();
+  return c.isPointInPath(path, px, py);
+}
+
+let _testCtx: CanvasRenderingContext2D | null = null;
+function _getTestCtx(): CanvasRenderingContext2D {
+  if (!_testCtx) {
+    const canvas = typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(1, 1)
+      : document.createElement('canvas');
+    _testCtx = (canvas as HTMLCanvasElement).getContext('2d')!;
+  }
+  return _testCtx;
+}
+
 export function pointInObject(px: number, py: number, obj: BoardObject): boolean {
   if (obj.type === 'connector') return false;
 
@@ -107,6 +125,18 @@ export function pointInObject(px: number, py: number, obj: BoardObject): boolean
   const local = inverseRotatePoint(px, py, c.x, c.y, obj.rotation || 0);
   const lx = local.x;
   const ly = local.y;
+
+  if (obj.type === 'shape') {
+    const def = SHAPE_DEFS.get((obj as ShapeObject).shapeKind);
+    if (def) {
+      const localX = obj.x;
+      const localY = obj.y;
+      const p = def.path(localX, localY, obj.width, obj.height);
+      return pointInPath2D(lx, ly, p);
+    }
+    // fallback to AABB
+    return lx >= obj.x && lx <= obj.x + obj.width && ly >= obj.y && ly <= obj.y + obj.height;
+  }
 
   if (obj.type === 'ellipse') {
     const cx = obj.x + obj.width / 2;
@@ -150,6 +180,14 @@ export function hitTestConnector(px: number, py: number, connector: BoardObject,
 }
 
 export function getPortList(obj: BoardObject): Port[] {
+  // New shape types (non-rectangle, non-ellipse) have no connector ports
+  if (obj.type === 'shape') {
+    const kind = (obj as ShapeObject).shapeKind;
+    if (kind !== 'rectangle' && kind !== 'rounded-rectangle' && kind !== 'ellipse' && kind !== 'circle') {
+      return [];
+    }
+  }
+
   const x = obj.x;
   const y = obj.y;
   const w = obj.width;

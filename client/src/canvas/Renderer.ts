@@ -1,4 +1,4 @@
-import type { BoardObject, Bounds, CursorData, Palette, RevealState } from '../types.js';
+import type { BoardObject, Bounds, CursorData, Palette, RevealState, ShapeObject } from '../types.js';
 import { getHandlePositions, HANDLE_SIZE } from './HitTest.js';
 import {
   getConnectorEndpoints,
@@ -9,6 +9,7 @@ import {
   getSelectionBounds,
 } from './Geometry.js';
 import { Camera } from './Camera.js';
+import { SHAPE_DEFS } from '../board/ShapeDefs.js';
 
 export class Renderer {
   palette: Palette;
@@ -54,6 +55,7 @@ export class Renderer {
     if (obj.type === 'sticky') return this._finishReveal(ctx, () => this.drawStickyNote(ctx, obj, skipText), reveal);
     if (obj.type === 'rectangle') return this._finishReveal(ctx, () => this.drawRectangle(ctx, obj), reveal);
     if (obj.type === 'ellipse') return this._finishReveal(ctx, () => this.drawEllipse(ctx, obj), reveal);
+    if (obj.type === 'shape') return this._finishReveal(ctx, () => this.drawShape(ctx, obj as ShapeObject), reveal);
     if (obj.type === 'text') return this._finishReveal(ctx, () => this.drawText(ctx, obj, skipText), reveal);
     if (obj.type === 'connector') return this._finishReveal(ctx, () => this.drawConnector(ctx, obj, objectsById), reveal);
     if (obj.type === 'frame') return this._finishReveal(ctx, () => this.drawFrame(ctx, obj), reveal);
@@ -121,6 +123,21 @@ export class Renderer {
       ctx.strokeStyle = stroke;
       ctx.lineWidth = 2;
       ctx.stroke();
+    });
+  }
+
+  drawShape(ctx: CanvasRenderingContext2D, obj: ShapeObject): void {
+    const def = SHAPE_DEFS.get(obj.shapeKind);
+    if (!def) return;
+
+    const fill = this._color(obj.color, '#bfdbfe');
+    const stroke = this._color(obj.strokeColor, '#64748b');
+
+    this._drawRotatedBox(ctx, obj, (lx, ly, w, h) => {
+      ctx.fillStyle = fill;
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 2;
+      def.draw(ctx, lx, ly, w, h);
     });
   }
 

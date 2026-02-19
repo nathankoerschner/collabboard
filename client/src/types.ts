@@ -1,12 +1,21 @@
 // ── Shared Board Object Types ──
 
 export type StickyColor = 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange' | 'red' | 'teal' | 'gray' | 'white';
-export type ObjectType = 'sticky' | 'rectangle' | 'ellipse' | 'text' | 'connector' | 'frame';
+
+export type ShapeKind =
+  | 'rectangle' | 'rounded-rectangle' | 'ellipse' | 'circle'
+  | 'triangle' | 'right-triangle' | 'diamond' | 'pentagon'
+  | 'hexagon' | 'octagon' | 'star' | 'star-4'
+  | 'arrow-right' | 'arrow-left' | 'arrow-up' | 'arrow-down'
+  | 'cross' | 'heart' | 'cloud' | 'callout'
+  | 'parallelogram' | 'trapezoid' | 'cylinder' | 'document';
+
+export type ObjectType = 'sticky' | 'rectangle' | 'ellipse' | 'text' | 'connector' | 'frame' | 'shape';
 export type ConnectorStyle = 'line' | 'arrow';
 export type TextSize = 'small' | 'medium' | 'large';
 export type PortName = 'n' | 'e' | 's' | 'w' | 'nw' | 'ne' | 'se' | 'sw';
 export type HandleName = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
-export type ToolName = 'select' | 'sticky' | 'rectangle' | 'ellipse' | 'text' | 'frame' | 'connector';
+export type ToolName = 'select' | 'sticky' | 'rectangle' | 'ellipse' | 'text' | 'frame' | 'connector' | 'shape';
 
 export interface Point {
   x: number;
@@ -82,7 +91,14 @@ export interface Frame extends BaseObject {
   children: string[];
 }
 
-export type BoardObject = StickyNote | RectangleObject | EllipseObject | TextObject | Connector | Frame;
+export interface ShapeObject extends BaseObject {
+  type: 'shape';
+  shapeKind: ShapeKind;
+  color: string;
+  strokeColor: string;
+}
+
+export type BoardObject = StickyNote | RectangleObject | EllipseObject | TextObject | Connector | Frame | ShapeObject;
 
 // ── Port ──
 
@@ -164,7 +180,7 @@ export interface InputHandlerCallbacks {
   onMoveSelection?: (ids: string[], dx: number, dy: number) => void;
   onResizeObject?: (id: string, x: number, y: number, w: number, h: number) => void;
   onRotateSelection?: (ids: string[], delta: number, pivot: Point) => void;
-  onCreate?: (type: ObjectType, x: number, y: number, w: number, h: number) => BoardObject | undefined;
+  onCreate?: (type: ObjectType, x: number, y: number, w: number, h: number, extra?: Record<string, unknown>) => BoardObject | undefined;
   onDeleteSelection?: (ids: string[]) => void;
   onCopySelection?: (ids: string[]) => void;
   onPaste?: () => void;

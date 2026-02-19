@@ -307,6 +307,50 @@ describe('validateToolArgs', () => {
     });
   });
 
+  describe('scoped read tools', () => {
+    test('getObjectById keeps objectId', () => {
+      const result = validateToolArgs('getObjectById', { objectId: 'obj-1' });
+      expect(result.objectId).toBe('obj-1');
+    });
+
+    test('listObjectsByType sanitizes type and limit', () => {
+      const result = validateToolArgs('listObjectsByType', { type: 'sticky', limit: 999 });
+      expect(result.type).toBe('sticky');
+      expect(result.limit).toBe(500);
+    });
+
+    test('getObjectsInViewport clamps values', () => {
+      const result = validateToolArgs('getObjectsInViewport', {
+        centerX: 0,
+        centerY: 0,
+        width: 0,
+        height: 999999,
+        limit: -10,
+      });
+      expect(result.width).toBe(1);
+      expect(result.height).toBe(100000);
+      expect(result.limit).toBe(1);
+    });
+  });
+
+  describe('batch and composite tools', () => {
+    test('createObjectsBatch sanitizes operations', () => {
+      const result = validateToolArgs('createObjectsBatch', {
+        operations: [
+          { toolName: 'createStickyNote', args: { text: 'hi' } },
+          { bad: 'entry' },
+        ],
+      });
+      expect(Array.isArray(result.operations)).toBe(true);
+      expect((result.operations as any[]).length).toBe(1);
+    });
+
+    test('createStructuredTemplate sanitizes template', () => {
+      const result = validateToolArgs('createStructuredTemplate', { template: 'unknown' });
+      expect(result.template).toBe('swot');
+    });
+  });
+
   describe('unknown tool', () => {
     test('returns empty object', () => {
       const result = validateToolArgs('unknownTool', { foo: 'bar' });

@@ -6,7 +6,8 @@ import { getUser, getToken } from '../auth.js';
 import { navigateTo } from '../router.js';
 import { runAICommand, getBoard, renameBoard } from '../api.js';
 import { openBoardOptionsModal } from '../components/boardOptionsModal.js';
-import type { ToolName } from '../types.js';
+import type { ShapeKind, ToolName } from '../types.js';
+import { SHAPE_DEFS } from '../board/ShapeDefs.js';
 
 let boardManager: BoardManager | null = null;
 let canvas: Canvas | null = null;
@@ -61,14 +62,10 @@ export const boardView = {
                 <polyline points="14 3 14 8 21 8"/>
               </svg>
             </button>
-            <button class="toolbar-btn" data-tool="rectangle" data-tooltip="Rectangle" aria-label="Rectangle tool">
+            <button class="toolbar-btn" id="shapes-btn" data-tool="shape" data-tooltip="Shapes" aria-label="Shapes tool">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2"/>
-              </svg>
-            </button>
-            <button class="toolbar-btn" data-tool="ellipse" data-tooltip="Ellipse" aria-label="Ellipse tool">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/>
+                <rect x="3" y="3" width="10" height="10" rx="1"/>
+                <circle cx="16" cy="16" r="6"/>
               </svg>
             </button>
             <button class="toolbar-btn" data-tool="text" data-tooltip="Text" aria-label="Text tool">
@@ -163,14 +160,77 @@ export const boardView = {
     const toolbar = document.getElementById('toolbar')!;
     const aiToggleBtn = document.getElementById('ai-chat-toggle');
 
+    const shapesBtn = document.getElementById('shapes-btn')!;
+
     canvas = new Canvas(canvasEl, boardManager.getObjectStore(), cursorManager, {
       onToolChange: (tool) => {
         toolbar.querySelectorAll('.toolbar-btn[data-tool]').forEach((b) => b.classList.remove('active'));
-        toolbar.querySelector(`[data-tool="${tool}"]`)?.classList.add('active');
+        if (tool === 'shape') {
+          shapesBtn.classList.add('active');
+        } else {
+          toolbar.querySelector(`[data-tool="${tool}"]`)?.classList.add('active');
+        }
       },
     });
 
+    // ── Shapes Drawer ──
     const boardViewEl = document.getElementById('board-view')!;
+
+    const shapesDrawer = document.createElement('div');
+    shapesDrawer.className = 'shapes-drawer';
+    shapesDrawer.innerHTML = `<div class="shapes-grid"></div>`;
+    boardViewEl.appendChild(shapesDrawer);
+
+    const shapesGrid = shapesDrawer.querySelector('.shapes-grid')!;
+    for (const [kind, def] of SHAPE_DEFS) {
+      const btn = document.createElement('button');
+      btn.className = 'shape-icon-btn';
+      btn.dataset.shapeKind = kind;
+      btn.title = def.label;
+      btn.innerHTML = def.icon;
+      shapesGrid.appendChild(btn);
+    }
+
+    let shapesDrawerOpen = false;
+    const toggleShapesDrawer = (open: boolean) => {
+      shapesDrawerOpen = open;
+      shapesDrawer.classList.toggle('open', open);
+      if (open) {
+        const rect = shapesBtn.getBoundingClientRect();
+        const boardRect = boardViewEl.getBoundingClientRect();
+        shapesDrawer.style.left = `${rect.left - boardRect.left + rect.width / 2}px`;
+        shapesDrawer.style.top = `${rect.bottom - boardRect.top + 8}px`;
+      }
+    };
+
+    shapesBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleShapesDrawer(!shapesDrawerOpen);
+    });
+
+    shapesGrid.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('[data-shape-kind]') as HTMLElement | null;
+      if (!btn) return;
+      const kind = btn.dataset.shapeKind as ShapeKind;
+      canvas!.setTool('shape');
+      canvas!.setShapeKind(kind);
+      toggleShapesDrawer(false);
+      toolbar.querySelectorAll('.toolbar-btn[data-tool]').forEach((b) => b.classList.remove('active'));
+      shapesBtn.classList.add('active');
+    });
+
+    document.addEventListener('click', (e) => {
+      if (shapesDrawerOpen && !shapesDrawer.contains(e.target as Node) && e.target !== shapesBtn && !shapesBtn.contains(e.target as Node)) {
+        toggleShapesDrawer(false);
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (shapesDrawerOpen && e.key === 'Escape') {
+        toggleShapesDrawer(false);
+      }
+    });
+
     presencePanel = new PresencePanel(boardViewEl, boardManager.getAwareness());
 
     document.getElementById('back-to-dashboard')!.addEventListener('click', () => {
@@ -181,6 +241,7 @@ export const boardView = {
       const btn = (e.target as HTMLElement).closest('[data-tool]') as HTMLElement | null;
       if (!btn) return;
       const tool = btn.dataset.tool as ToolName;
+      if (tool === 'shape') return; // handled by shapes drawer toggle above
       canvas!.setTool(tool);
       toolbar.querySelectorAll('.toolbar-btn[data-tool]').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
@@ -256,7 +317,7 @@ export const boardView = {
       }
 
       if (isInput) return;
-      const keyMap: Record<string, ToolName> = { v: 'select', s: 'sticky', r: 'rectangle', e: 'ellipse', t: 'text', f: 'frame', c: 'connector' };
+      const keyMap: Record<string, ToolName> = { v: 'select', s: 'sticky', t: 'text', f: 'frame', c: 'connector' };
       const tool = keyMap[e.key?.toLowerCase()];
       if (tool && !e.metaKey && !e.ctrlKey) {
         canvas!.setTool(tool);

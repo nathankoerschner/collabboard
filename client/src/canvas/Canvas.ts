@@ -1,4 +1,4 @@
-import type { BoardObject, CanvasCallbacks, RevealEntry, RevealState, ToolName } from '../types.js';
+import type { BoardObject, CanvasCallbacks, RevealEntry, RevealState, ShapeKind, ToolName } from '../types.js';
 import { Camera } from './Camera.js';
 import { Renderer } from './Renderer.js';
 import { InputHandler } from './InputHandler.js';
@@ -56,8 +56,8 @@ export class Canvas {
       onMoveSelection: (ids, dx, dy) => this.objectStore.moveObjects(ids, dx, dy),
       onResizeObject: (id, x, y, w, h) => this.objectStore.resizeObject(id, x, y, w, h),
       onRotateSelection: (ids, delta, pivot) => this.objectStore.rotateObjects(ids, delta, pivot),
-      onCreate: (type, x, y, w, h) => {
-        const obj = this.objectStore.createObject(type, x, y, w, h);
+      onCreate: (type, x, y, w, h, extra) => {
+        const obj = this.objectStore.createObject(type, x, y, w, h, extra || {});
         this.selectedIds = [obj.id];
         if (type === 'sticky' || type === 'text') {
           setTimeout(() => {
@@ -197,6 +197,17 @@ export class Canvas {
       }
     }
 
+    const shapePreview = this.inputHandler.getShapePreviewRect();
+    if (shapePreview && shapePreview.width > 0 && shapePreview.height > 0) {
+      ctx.save();
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 1.5 / this.camera.scale;
+      ctx.setLineDash([6 / this.camera.scale, 4 / this.camera.scale]);
+      ctx.strokeRect(shapePreview.x, shapePreview.y, shapePreview.width, shapePreview.height);
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
     const marqueeRect = this.inputHandler.getMarqueeRect();
     if (marqueeRect) {
       const hoveredIds = this.inputHandler.getMarqueeHoveredIds();
@@ -247,6 +258,10 @@ export class Canvas {
 
   setTool(tool: ToolName): void {
     this.inputHandler.setTool(tool);
+  }
+
+  setShapeKind(kind: ShapeKind): void {
+    this.inputHandler.setShapeKind(kind);
   }
 
   getViewportCenter() {
