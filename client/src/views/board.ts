@@ -53,6 +53,20 @@ export const boardView = {
         </button>
 
         <div class="board-toolbar" id="toolbar">
+          <div class="toolbar-group toolbar-undo-redo">
+            <button class="toolbar-btn" id="undo-btn" data-tooltip="Undo | ⌘Z" aria-label="Undo" disabled>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7v6h6"/>
+                <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6.69 3L3 13"/>
+              </svg>
+            </button>
+            <button class="toolbar-btn" id="redo-btn" data-tooltip="Redo | ⌘⇧Z" aria-label="Redo" disabled>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 7v6h-6"/>
+                <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6.69 3L21 13"/>
+              </svg>
+            </button>
+          </div>
           <div class="toolbar-group">
             <button class="toolbar-btn active" data-tool="select" data-tooltip="Select" aria-label="Select tool">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -171,6 +185,16 @@ export const boardView = {
         selectionToolbar?.update(ids, isTextEditing);
         colorPicker?.close();
       },
+    });
+
+    // ── Undo / Redo buttons ──
+    const undoBtn = document.getElementById('undo-btn') as HTMLButtonElement;
+    const redoBtn = document.getElementById('redo-btn') as HTMLButtonElement;
+    undoBtn.addEventListener('click', () => canvas?.undoRedoManager.undo());
+    redoBtn.addEventListener('click', () => canvas?.undoRedoManager.redo());
+    canvas.undoRedoManager.onStackChange(() => {
+      undoBtn.disabled = !canvas?.undoRedoManager.canUndo();
+      redoBtn.disabled = !canvas?.undoRedoManager.canRedo();
     });
 
     // ── Selection Toolbar + Color Picker ──
@@ -351,6 +375,7 @@ export const boardView = {
 
       if (!isOpen) {
         aiInput.value = '';
+        aiInput.blur();
       }
     };
 
@@ -362,6 +387,9 @@ export const boardView = {
       // Close bar immediately and start toolbar spinner
       syncAiPanel(false);
       aiToggleBtn?.classList.add('ai-processing');
+
+      // Snapshot board state before AI so we can build precise undo entries
+      canvas?.undoRedoManager.snapshotForAI();
 
       try {
         const viewport = canvas!.getViewportSnapshot();
@@ -385,6 +413,9 @@ export const boardView = {
         if (totalMutations === 0) {
           showBubble("Not sure what to do with that");
         }
+
+        // Push a per-user AI undo entry using only IDs from this user's command
+        canvas?.undoRedoManager.pushAIUndoEntry(r);
       } catch (err: unknown) {
         showToast((err as Error)?.message || 'AI command failed');
       } finally {

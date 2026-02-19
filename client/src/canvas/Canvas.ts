@@ -4,6 +4,7 @@ import { Renderer } from './Renderer.js';
 import { InputHandler } from './InputHandler.js';
 import { TextEditor } from './TextEditor.js';
 import { ObjectStore } from '../board/ObjectStore.js';
+import { UndoRedoManager } from '../board/UndoRedoManager.js';
 import { CursorManager } from '../board/CursorManager.js';
 import { SHAPE_DEFS } from '../board/ShapeDefs.js';
 
@@ -24,6 +25,7 @@ export class Canvas {
   renderer: Renderer;
   textEditor: TextEditor;
   inputHandler: InputHandler;
+  undoRedoManager!: UndoRedoManager;
   resizeObserver: ResizeObserver;
 
   constructor(canvasEl: HTMLCanvasElement, objectStore: ObjectStore, cursorManager: CursorManager | null, callbacks: CanvasCallbacks = {}) {
@@ -35,17 +37,29 @@ export class Canvas {
     this.callbacks = callbacks;
     this.reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+    this.undoRedoManager = new UndoRedoManager(objectStore);
     this.renderer = new Renderer(this.objectStore.getPalette());
 
     this.textEditor = new TextEditor(canvasEl, this.camera, {
-      onTextChange: (id, text) => this.objectStore.updateText(id, text),
-      onTextStyleChange: (id, patch) => this.objectStore.updateTextStyle(id, patch),
+      onTextChange: (id, text) => {
+        this.objectStore.transactionOrigin = 'text-edit';
+        this.objectStore.updateText(id, text);
+      },
+      onTextStyleChange: (id, patch) => {
+        this.objectStore.transactionOrigin = 'text-edit';
+        this.objectStore.updateTextStyle(id, patch);
+      },
       onResize: (id, _w, h) => {
         const obj = this.objectStore.getObject(id);
         if (!obj) return;
         if (h > obj.height) {
+          this.objectStore.transactionOrigin = 'text-edit';
           this.objectStore.resizeObject(id, obj.x, obj.y, obj.width, h);
         }
+      },
+      onEditEnd: () => {
+        this.objectStore.transactionOrigin = 'local';
+        this.undoRedoManager.stopCapturing();
       },
     });
 
@@ -55,9 +69,18 @@ export class Canvas {
         this.inputHandler.setSelection(ids);
         this.callbacks.onSelectionChange?.(ids);
       },
-      onMoveSelection: (ids, dx, dy) => this.objectStore.moveObjects(ids, dx, dy),
-      onResizeObject: (id, x, y, w, h) => this.objectStore.resizeObject(id, x, y, w, h),
-      onRotateSelection: (ids, delta, pivot) => this.objectStore.rotateObjects(ids, delta, pivot),
+      onMoveSelection: (ids, dx, dy) => {
+        this.objectStore.transactionOrigin = 'gesture';
+        this.objectStore.moveObjects(ids, dx, dy);
+      },
+      onResizeObject: (id, x, y, w, h) => {
+        this.objectStore.transactionOrigin = 'gesture';
+        this.objectStore.resizeObject(id, x, y, w, h);
+      },
+      onRotateSelection: (ids, delta, pivot) => {
+        this.objectStore.transactionOrigin = 'gesture';
+        this.objectStore.rotateObjects(ids, delta, pivot);
+      },
       onCreate: (type, x, y, w, h, extra) => {
         const obj = this.objectStore.createObject(type, x, y, w, h, extra || {});
         this.selectedIds = [obj.id];
@@ -98,6 +121,7 @@ export class Canvas {
       onBringToFront: (id) => this.objectStore.bringToFront(id),
       onCursorMove: (wx, wy) => this.cursorManager?.sendCursor(wx, wy),
       onStartConnector: (wx, wy, attach) => {
+        this.objectStore.transactionOrigin = 'gesture';
         const conn = this.objectStore.startConnector(wx, wy);
 
         if (attach) {
@@ -120,8 +144,30 @@ export class Canvas {
         const excludeIds = [connectorId, excludeSourceId].filter((id): id is string => !!id);
         return this.objectStore.getAttachableAtPoint(wx, wy, excludeIds, this.camera.scale);
       },
-      onConnectorEndpoint: (id, side, payload) => this.objectStore.updateConnectorEndpoint(id, side, payload),
-      onFinishConnector: () => {},
+      onConnectorEndpoint: (id, side, payload) => {
+        this.objectStore.transactionOrigin = 'gesture';
+        this.objectStore.updateConnectorEndpoint(id, side, payload);
+      },
+      onFinishConnector: () => {
+        this.objectStore.transactionOrigin = 'local';
+        this.undoRedoManager.stopCapturing();
+      },
+      onGestureEnd: () => {
+        this.objectStore.transactionOrigin = 'local';
+        this.undoRedoManager.stopCapturing();
+      },
+      onUndo: () => {
+        this.undoRedoManager.undo();
+        this.selectedIds = [];
+        this.inputHandler.setSelection([]);
+        this.callbacks.onSelectionChange?.([]);
+      },
+      onRedo: () => {
+        this.undoRedoManager.redo();
+        this.selectedIds = [];
+        this.inputHandler.setSelection([]);
+        this.callbacks.onSelectionChange?.([]);
+      },
     });
 
     canvasEl.addEventListener('dblclick', (e) => {
@@ -320,6 +366,7 @@ export class Canvas {
     this.resizeObserver.disconnect();
     this.inputHandler.destroy();
     this.textEditor.destroy();
+    this.undoRedoManager.destroy();
   }
 
   _trackAIReveals(objects: BoardObject[]): void {

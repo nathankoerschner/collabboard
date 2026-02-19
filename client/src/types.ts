@@ -202,12 +202,16 @@ export interface InputHandlerCallbacks {
   onResolveAttach?: (wx: number, wy: number, connectorId: string, excludeSourceId?: string | null) => AttachResult | null;
   onConnectorEndpoint?: (id: string, side: string, payload: ConnectorEndpointPayload) => void;
   onFinishConnector?: (id: string) => void;
+  onGestureEnd?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 export interface TextEditorCallbacks {
   onTextChange?: (id: string, text: string) => void;
   onTextStyleChange?: (id: string, patch: Partial<TextStyle>) => void;
   onResize?: (id: string, width: number, height: number) => void;
+  onEditEnd?: () => void;
 }
 
 // ── Palette ──

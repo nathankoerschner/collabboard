@@ -76,6 +76,7 @@ export class TextEditor {
   }
 
   stopEditing(): void {
+    const wasEditing = !!this.editingId;
     if (this.input) {
       this.input.remove();
       this.input = null;
@@ -86,6 +87,9 @@ export class TextEditor {
     }
     this.editingId = null;
     this.editingType = null;
+    if (wasEditing) {
+      this.callbacks.onEditEnd?.();
+    }
   }
 
   getEditingId(): string | null {

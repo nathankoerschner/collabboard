@@ -22,16 +22,33 @@ const PALETTE: Palette = {
   orange: '#fed7aa',
   red: '#fecaca',
   teal: '#99f6e4',
-  gray: '#e5e7eb',
-  white: '#ffffff',
+  black: '#000000',
 };
 
 const BASE_MIN_SIZE = 24;
+
+const UNIVERSAL_KEYS = [
+  'id', 'type', 'x', 'y', 'width', 'height', 'rotation', 'createdBy', 'parentFrameId',
+  'text', 'color', 'content', 'style', 'strokeColor', 'shapeKind',
+  'fromId', 'toId', 'fromPort', 'toPort', 'fromPoint', 'toPoint', 'fromT', 'toT', 'points',
+  'title', 'children',
+] as const;
+
+function valuesEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a == null && b == null) return true;
+  if (a == null || b == null) return false;
+  if (typeof a !== 'object' || typeof b !== 'object') return false;
+  // Only reach here for objects/arrays (style, points, children, fromPoint, toPoint)
+  // These change infrequently — JSON.stringify is acceptable for the rare case
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 export class ObjectStore {
   doc: Y.Doc;
   objectsMap: Y.Map<Y.Map<unknown>>;
   zOrder: Y.Array<string>;
+  transactionOrigin: string = 'local';
 
   constructor(doc: Y.Doc) {
     this.doc = doc;
@@ -60,7 +77,7 @@ export class ObjectStore {
         yObj.set('type', 'shape');
         yObj.set('shapeKind', oldType); // 'rectangle' or 'ellipse'
       }
-    });
+    }, this.transactionOrigin);
   }
 
   createObject(type: ObjectType, x: number, y: number, width: number, height: number, extra: Record<string, unknown> = {}): BoardObject {
@@ -71,9 +88,19 @@ export class ObjectStore {
       this._setObject(obj);
       this.zOrder.push([id]);
       this._syncContainmentAfterMutation(id);
-    });
+    }, this.transactionOrigin);
 
     return obj;
+  }
+
+  /** Recreate an object from a full snapshot (used by AI undo/redo). */
+  createObjectFromSnapshot(obj: BoardObject): void {
+    this.doc.transact(() => {
+      this._setObject(obj);
+      if (this._zIndexOf(obj.id) === -1) {
+        this.zOrder.push([obj.id]);
+      }
+    }, this.transactionOrigin);
   }
 
   updateObject(id: string, patch: Record<string, unknown> = {}): void {
@@ -87,7 +114,7 @@ export class ObjectStore {
       if (next.height < BASE_MIN_SIZE) next.height = BASE_MIN_SIZE;
       this._setObject(next);
       this._syncContainmentAfterMutation(id);
-    });
+    }, this.transactionOrigin);
   }
 
   moveObject(id: string, x: number, y: number): void {
@@ -121,7 +148,7 @@ export class ObjectStore {
       for (const id of moveSet) {
         this._syncContainmentAfterMutation(id);
       }
-    });
+    }, this.transactionOrigin);
   }
 
   resizeObject(id: string, x: number, y: number, width: number, height: number): void {
@@ -139,7 +166,7 @@ export class ObjectStore {
     this.doc.transact(() => {
       this._setObject(next);
       this._syncContainmentAfterMutation(id);
-    });
+    }, this.transactionOrigin);
   }
 
   rotateObjects(ids: string[], deltaAngle: number, pivot: Point | null = null): void {
@@ -181,7 +208,7 @@ export class ObjectStore {
       for (const obj of current) {
         this._syncContainmentAfterMutation(obj.id);
       }
-    });
+    }, this.transactionOrigin);
   }
 
   updateText(id: string, value: string): void {
@@ -194,7 +221,7 @@ export class ObjectStore {
       } else {
         this._setObject({ ...obj, text: value } as BoardObject);
       }
-    });
+    }, this.transactionOrigin);
   }
 
   updateTextStyle(id: string, stylePatch: Partial<TextStyle>): void {
@@ -204,7 +231,7 @@ export class ObjectStore {
     const style = { ...(obj.style || {}), ...stylePatch };
     this.doc.transact(() => {
       this._setObject({ ...obj, style } as BoardObject);
-    });
+    }, this.transactionOrigin);
   }
 
   updateColor(id: string, color: string): void {
@@ -212,7 +239,7 @@ export class ObjectStore {
     if (!obj) return;
     this.doc.transact(() => {
       this._setObject({ ...obj, color } as BoardObject);
-    });
+    }, this.transactionOrigin);
   }
 
   updateConnectorEndpoint(id: string, side: string, payload: ConnectorEndpointPayload): void {
@@ -244,7 +271,7 @@ export class ObjectStore {
 
     this.doc.transact(() => {
       this._setObject(next as BoardObject);
-    });
+    }, this.transactionOrigin);
   }
 
   startConnector(x: number, y: number): BoardObject {
@@ -311,7 +338,7 @@ export class ObjectStore {
         this.objectsMap.delete(id);
         this._removeFromZOrder(id);
       }
-    });
+    }, this.transactionOrigin);
   }
 
   deleteObject(id: string): void {
@@ -325,7 +352,7 @@ export class ObjectStore {
     this.doc.transact(() => {
       this.zOrder.delete(idx, 1);
       this.zOrder.push([id]);
-    });
+    }, this.transactionOrigin);
   }
 
   duplicateSelection(ids: string[], offset: Point = { x: 20, y: 20 }): string[] {
@@ -421,7 +448,7 @@ export class ObjectStore {
       for (const obj of clones) {
         this._syncContainmentAfterMutation(obj.id);
       }
-    });
+    }, this.transactionOrigin);
 
     return clones.map((o) => o.id);
   }
@@ -450,74 +477,63 @@ export class ObjectStore {
   }
 
   _buildDefaultObject(id: string, type: ObjectType, x: number, y: number, width: number, height: number, extra: Record<string, unknown>): BoardObject {
-    const base = {
-      id,
-      type,
-      x,
-      y,
-      width,
-      height,
-      rotation: 0,
-      createdBy: 'local',
-      parentFrameId: null,
-    };
+    // Start with all universal keys set to null
+    const obj: Record<string, unknown> = {};
+    for (const key of UNIVERSAL_KEYS) {
+      obj[key] = null;
+    }
 
+    // Base fields
+    obj.id = id;
+    obj.type = type;
+    obj.x = x;
+    obj.y = y;
+    obj.width = width;
+    obj.height = height;
+    obj.rotation = 0;
+    obj.createdBy = 'local';
+
+    // Type-specific defaults
     if (type === 'sticky') {
-      return { ...base, text: '', color: 'yellow', ...extra } as BoardObject;
-    }
-    if (type === 'rectangle') {
-      return { ...base, color: 'blue', strokeColor: 'gray', ...extra } as BoardObject;
-    }
-    if (type === 'ellipse') {
-      return { ...base, color: 'teal', strokeColor: 'gray', ...extra } as BoardObject;
-    }
-    if (type === 'text') {
-      return {
-        ...base,
-        content: '',
-        color: '#000000',
-        style: { bold: false, italic: false, size: 'medium' },
-        ...extra,
-      } as BoardObject;
-    }
-    if (type === 'connector') {
-      return {
-        ...base,
-        width: 0,
-        height: 0,
-        fromId: null,
-        toId: null,
-        fromPort: null,
-        toPort: null,
-        fromPoint: null,
-        toPoint: null,
-        fromT: null,
-        toT: null,
-        style: 'arrow',
-        points: [],
-        ...extra,
-      } as BoardObject;
-    }
-    if (type === 'frame') {
-      return {
-        ...base,
-        title: 'Frame',
-        color: 'gray',
-        children: [],
-        ...extra,
-      } as BoardObject;
-    }
-    if (type === 'shape') {
-      return {
-        ...base,
-        shapeKind: (extra.shapeKind as string) || 'rectangle',
-        color: 'blue',
-        strokeColor: 'gray',
-        ...extra,
-      } as BoardObject;
+      obj.text = '';
+      obj.color = 'yellow';
+    } else if (type === 'rectangle') {
+      obj.color = 'blue';
+      obj.strokeColor = '#64748b';
+    } else if (type === 'ellipse') {
+      obj.color = 'teal';
+      obj.strokeColor = '#64748b';
+    } else if (type === 'text') {
+      obj.content = '';
+      obj.color = '#000000';
+      obj.style = { bold: false, italic: false, size: 'medium' };
+    } else if (type === 'connector') {
+      obj.width = 0;
+      obj.height = 0;
+      obj.fromId = null;
+      obj.toId = null;
+      obj.fromPort = null;
+      obj.toPort = null;
+      obj.fromPoint = null;
+      obj.toPoint = null;
+      obj.fromT = null;
+      obj.toT = null;
+      obj.style = 'arrow';
+      obj.points = [];
+    } else if (type === 'frame') {
+      obj.title = 'Frame';
+      obj.color = '#94a3b8';
+      obj.children = [];
+    } else if (type === 'shape') {
+      obj.shapeKind = 'rectangle';
+      obj.color = 'blue';
+      obj.strokeColor = '#64748b';
     }
 
-    return { ...base, ...extra } as BoardObject;
+    // Apply overrides
+    Object.assign(obj, extra);
+
+    return obj as unknown as BoardObject;
   }
 
   _resolveConnectorPoint(connector: BoardObject, side: 'from' | 'to'): Point | null {
@@ -545,11 +561,34 @@ export class ObjectStore {
   }
 
   _setObject(obj: BoardObject): void {
-    const yObj = new Y.Map();
-    for (const [key, val] of Object.entries(obj)) {
-      yObj.set(key, val);
+    const existing = this.objectsMap.get(obj.id);
+    if (existing) {
+      // In-place update: only touch changed keys so UndoManager sees field-level diffs
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rec = obj as any;
+      for (const key of UNIVERSAL_KEYS) {
+        const newVal = rec[key] ?? null;
+        const oldVal = existing.get(key);
+        // Fast path: skip when both are null (most keys for any given type)
+        if (oldVal == null && newVal == null) continue;
+        // Fast path: identical primitives (covers x, y, width, height, etc.)
+        if (oldVal === newVal) continue;
+        // Slow path: deep compare for objects/arrays (style, points, children, etc.)
+        if (!valuesEqual(oldVal, newVal)) {
+          existing.set(key, newVal);
+        }
+      }
+    } else {
+      // New object: create Y.Map with all universal keys
+      const yObj = new Y.Map();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rec = obj as any;
+      for (const key of UNIVERSAL_KEYS) {
+        const val = rec[key];
+        yObj.set(key, val ?? null);
+      }
+      this.objectsMap.set(obj.id, yObj as Y.Map<unknown>);
     }
-    this.objectsMap.set(obj.id, yObj as Y.Map<unknown>);
   }
 
   _yMapToObj(yMap: Y.Map<unknown>): BoardObject {

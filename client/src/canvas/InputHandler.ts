@@ -449,6 +449,10 @@ export class InputHandler {
       this.hoveredHitboxId = null;
     }
 
+    if (this.dragType === 'move' || this.dragType === 'resize' || this.dragType === 'rotate') {
+      this.callbacks.onGestureEnd?.();
+    }
+
     this.dragging = false;
     this.dragType = null;
     this.resizeHandle = null;
@@ -471,6 +475,12 @@ export class InputHandler {
     if (e.target instanceof HTMLElement && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) return;
 
     const key = e.key.toLowerCase();
+
+    if ((e.metaKey || e.ctrlKey) && key === 'z') {
+      e.preventDefault();
+      e.shiftKey ? this.callbacks.onRedo?.() : this.callbacks.onUndo?.();
+      return;
+    }
 
     if (e.key === ' ') {
       e.preventDefault();
