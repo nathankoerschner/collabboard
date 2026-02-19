@@ -158,7 +158,7 @@ export async function recordAIError(traceCtx: TraceContext, payload: { message: 
   }
 }
 
-export async function finishAITrace(traceCtx: TraceContext, payload: { createdIds: string[]; updatedIds: string[]; deletedIds: string[]; toolCalls: unknown[]; errors: string[]; durationMs: number; completed: boolean; metrics?: Record<string, unknown> }): Promise<void> {
+export async function finishAITrace(traceCtx: TraceContext, payload: { createdIds: string[]; updatedIds: string[]; deletedIds: string[]; toolCalls: unknown[]; errors: string[]; durationMs: number; completed: boolean }): Promise<void> {
   if (!traceCtx?.enabled) return;
   try {
     if (traceCtx.rootSpan) {
@@ -183,7 +183,6 @@ export async function finishAITrace(traceCtx: TraceContext, payload: { createdId
         errors: payload.errors,
         durationMs: payload.durationMs,
         completed: payload.completed,
-        metrics: payload.metrics,
       },
       error: payload.errors?.length ? payload.errors[0] : undefined,
     });
