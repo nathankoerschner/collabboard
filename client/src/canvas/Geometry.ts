@@ -180,6 +180,9 @@ export function hitTestConnector(px: number, py: number, connector: BoardObject,
 }
 
 export function getPortList(obj: BoardObject): Port[] {
+  // Text objects have no connector ports
+  if (obj.type === 'text') return [];
+
   // New shape types (non-rectangle, non-ellipse) have no connector ports
   if (obj.type === 'shape') {
     const kind = (obj as ShapeObject).shapeKind;

@@ -188,7 +188,7 @@ export function hitTestOuterRingTopmost(
 ): BoardObject | null {
   for (let i = objects.length - 1; i >= 0; i--) {
     const obj = objects[i]!;
-    if (obj.type === 'connector' || obj.type === 'frame') continue;
+    if (obj.type === 'connector' || obj.type === 'frame' || obj.type === 'text') continue;
     if (hitTestOuterRing(wx, wy, obj, ringPx, scale)) return obj;
   }
   return null;
