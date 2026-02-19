@@ -161,7 +161,7 @@ export const boardView = {
     const canvasEl = document.getElementById('board-canvas') as HTMLCanvasElement;
     const toolbar = document.getElementById('toolbar')!;
     const aiToggleBtn = document.getElementById('ai-chat-toggle');
-    const aiEnabled = import.meta.env.VITE_AI_FEATURE_ENABLED === 'true';
+    const aiEnabled = true;
 
     canvas = new Canvas(canvasEl, boardManager.getObjectStore(), cursorManager, {
       onToolChange: (tool) => {

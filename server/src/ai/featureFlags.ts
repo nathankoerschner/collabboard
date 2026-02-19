@@ -1,11 +1,5 @@
-function isTrue(value: string | undefined | null, fallback = false): boolean {
-  if (value == null) return fallback;
-  const normalized = String(value).trim().toLowerCase();
-  return ['1', 'true', 'yes', 'on'].includes(normalized);
-}
-
 export function isAIEnabled(): boolean {
-  return isTrue(process.env.AI_FEATURE_ENABLED, false);
+  return true;
 }
 
 export function readAIRateLimitConfig(): { limit: number; windowMs: number } {
