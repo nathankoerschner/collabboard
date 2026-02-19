@@ -309,7 +309,7 @@ export class BoardToolRunner {
     const obj = {
       ...this._createBase('text', placement.x, placement.y, width, height),
       content: args.content,
-      color: sanitizeColor(args.color, 'gray'),
+      color: sanitizeColor(args.color, 'black'),
       style: {
         bold: args.bold,
         italic: args.italic,
@@ -422,7 +422,7 @@ export class BoardToolRunner {
     if (obj.type === 'connector') return { ok: false, error: 'Connectors do not support palette color updates' };
     if (obj.type === 'frame') return { ok: false, error: 'Frames do not support color changes' };
 
-    this._setObject({ ...obj, color: sanitizeColor(args.color, (obj.color as string) || 'gray') });
+    this._setObject({ ...obj, color: sanitizeColor(args.color, (obj.color as string) || 'black') });
     return { ok: true };
   }
 

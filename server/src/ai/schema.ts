@@ -131,7 +131,7 @@ export function validateToolArgs(toolName: string, rawArgs: unknown = {}): Recor
       fontSize: (TEXT_SIZES as readonly string[]).includes(args.fontSize as string) ? args.fontSize : 'medium',
       bold: Boolean(args.bold),
       italic: Boolean(args.italic),
-      color: sanitizeColor(args.color, 'gray'),
+      color: sanitizeColor(args.color, 'black'),
     };
   }
 
@@ -175,7 +175,7 @@ export function validateToolArgs(toolName: string, rawArgs: unknown = {}): Recor
   if (toolName === 'changeColor') {
     return {
       objectId: typeof args.objectId === 'string' ? args.objectId : null,
-      color: sanitizeColor(args.color, 'gray'),
+      color: sanitizeColor(args.color, 'black'),
     };
   }
 
