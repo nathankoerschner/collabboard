@@ -89,7 +89,7 @@ export const boardView = {
             </button>
           </div>
           <div class="toolbar-group">
-            <button class="toolbar-btn" id="ai-chat-toggle" data-tooltip="Ask AI" aria-label="Open AI chat">
+            <button class="toolbar-btn" id="ai-chat-toggle" data-tooltip="Ask AI | ⌘K" aria-label="Open AI chat">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.937A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .962L15.5 14.063A2 2 0 0 0 14.063 15.5l-1.582 6.135a.5.5 0 0 1-.962 0z"/>
                 <path d="M20 3v4"/>
@@ -97,30 +97,24 @@ export const boardView = {
                 <path d="M4 17v2"/>
                 <path d="M5 18H3"/>
               </svg>
+              <div class="ai-bubble" id="ai-bubble"></div>
             </button>
           </div>
           <div class="toolbar-zoom" id="zoom-indicator">100%</div>
         </div>
 
         <div class="board-status" id="board-status"></div>
+        <div class="ai-backdrop" id="ai-backdrop"></div>
         <div class="ai-command-bar" id="ai-command-bar" aria-hidden="true">
           <form class="ai-command-form" id="ai-command-form">
-            <label class="ai-command-title" for="ai-command-input">Ask AI</label>
             <div class="ai-command-row">
-              <input id="ai-command-input" class="ai-command-input" type="text" placeholder="Create a SWOT analysis" autocomplete="off" />
+              <input id="ai-command-input" class="ai-command-input" type="text" placeholder="Ask AI anything..." autocomplete="off" />
               <button type="submit" class="ai-command-submit" id="ai-command-submit">Run</button>
             </div>
-            <div class="ai-command-meta">
-              <div class="ai-command-spinner" id="ai-command-spinner" hidden></div>
-              <div class="ai-command-error" id="ai-command-error"></div>
-            </div>
-            <div class="ai-suggestions" id="ai-suggestions">
-              <button type="button" class="ai-suggestion-chip">Create a SWOT analysis</button>
-              <button type="button" class="ai-suggestion-chip">Make a retro board with columns</button>
-              <button type="button" class="ai-suggestion-chip">Arrange selected notes in a grid</button>
-            </div>
           </form>
+          <div class="ai-working" id="ai-working" hidden>Working...</div>
         </div>
+        <div class="ai-toast" id="ai-toast"></div>
         <canvas id="board-canvas"></canvas>
       </div>
     `;
@@ -310,15 +304,54 @@ export const boardView = {
     const aiBar = document.getElementById('ai-command-bar')!;
     const aiForm = document.getElementById('ai-command-form')!;
     const aiInput = document.getElementById('ai-command-input') as HTMLInputElement;
-    const aiSpinner = document.getElementById('ai-command-spinner')!;
-    const aiError = document.getElementById('ai-command-error')!;
-    const aiSuggestions = document.getElementById('ai-suggestions')!;
+    const aiBackdrop = document.getElementById('ai-backdrop')!;
+    const aiToast = document.getElementById('ai-toast')!;
+    const aiWorking = document.getElementById('ai-working')!;
+    const aiBubble = document.getElementById('ai-bubble')!;
+    let toastTimer: ReturnType<typeof setTimeout> | null = null;
+    let bubbleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const showBubble = (message: string) => {
+      aiBubble.textContent = message;
+      aiBubble.classList.add('visible');
+      if (bubbleTimer) clearTimeout(bubbleTimer);
+      bubbleTimer = setTimeout(() => {
+        aiBubble.classList.remove('visible');
+        bubbleTimer = null;
+      }, 3000);
+    };
+
+    const showToast = (message: string) => {
+      aiToast.textContent = message;
+      aiToast.classList.add('visible');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        aiToast.classList.remove('visible');
+        toastTimer = null;
+      }, 4000);
+    };
+
     const syncAiPanel = (isOpen: boolean) => {
       aiPanelOpen = isOpen;
-      aiBar.classList.toggle('visible', aiPanelOpen);
-      aiBar.setAttribute('aria-hidden', aiPanelOpen ? 'false' : 'true');
-      aiToggleBtn?.classList.toggle('active', aiPanelOpen);
-      if (aiPanelOpen) aiInput.focus();
+      aiBar.classList.toggle('visible', isOpen);
+      aiBackdrop.classList.toggle('visible', isOpen);
+      aiBar.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+      aiToggleBtn?.classList.toggle('active', isOpen);
+
+      if (isOpen && aiSubmitting) {
+        // Show "Working..." state
+        aiForm.hidden = true;
+        aiWorking.hidden = false;
+      } else if (isOpen) {
+        // Show normal input state
+        aiForm.hidden = false;
+        aiWorking.hidden = true;
+        aiInput.focus();
+      }
+
+      if (!isOpen) {
+        aiInput.value = '';
+      }
     };
 
     const submitAICommand = async (prompt: string): Promise<void> => {
@@ -326,12 +359,13 @@ export const boardView = {
       if (!trimmedPrompt || aiSubmitting) return;
 
       aiSubmitting = true;
-      aiError.textContent = '';
-      (aiSpinner as HTMLElement).hidden = false;
+      // Close bar immediately and start toolbar spinner
+      syncAiPanel(false);
+      aiToggleBtn?.classList.add('ai-processing');
 
       try {
         const viewport = canvas!.getViewportSnapshot();
-        await runAICommand(boardId, {
+        const result = await runAICommand(boardId, {
           prompt: trimmedPrompt,
           viewportCenter: {
             x: viewport.center.x,
@@ -346,13 +380,16 @@ export const boardView = {
           userId: user?.id || (user as Record<string, unknown>)?.sub || 'anonymous',
         });
 
-        aiInput.value = '';
-        syncAiPanel(false);
+        const r = result as { createdIds?: string[]; updatedIds?: string[]; deletedIds?: string[] };
+        const totalMutations = (r.createdIds?.length || 0) + (r.updatedIds?.length || 0) + (r.deletedIds?.length || 0);
+        if (totalMutations === 0) {
+          showBubble("Not sure what to do with that");
+        }
       } catch (err: unknown) {
-        aiError.textContent = (err as Error)?.message || 'AI command failed';
+        showToast((err as Error)?.message || 'AI command failed');
       } finally {
         aiSubmitting = false;
-        (aiSpinner as HTMLElement).hidden = true;
+        aiToggleBtn?.classList.remove('ai-processing');
       }
     };
 
@@ -360,12 +397,8 @@ export const boardView = {
       syncAiPanel(!aiPanelOpen);
     });
 
-    aiSuggestions.addEventListener('click', async (e) => {
-      const chip = (e.target as HTMLElement).closest('.ai-suggestion-chip') as HTMLElement | null;
-      if (!chip) return;
-      const prompt = chip.textContent || '';
-      aiInput.value = prompt;
-      await submitAICommand(prompt);
+    aiBackdrop.addEventListener('click', () => {
+      syncAiPanel(false);
     });
 
     aiForm.addEventListener('submit', async (e) => {
