@@ -5,7 +5,7 @@ import type { AIMessage } from '@langchain/core/messages';
 import { getYDoc } from 'y-websocket/bin/utils';
 import { BoardToolRunner } from './boardTools.js';
 import { normalizeViewportCenter, toLangChainTools } from './schema.js';
-import { finishAITrace, recordAIError, startAITrace, startRoundSpan, endRoundSpan } from './observability.js';
+import { finishAITrace, recordAIError, startAITrace, withCollapsedLangChainTracing } from './observability.js';
 
 const FAST_MODEL = process.env.OPENAI_FAST_MODEL || 'gpt-4o-mini';
 const POWER_MODEL = process.env.OPENAI_MODEL || 'gpt-5.2';
@@ -120,39 +120,44 @@ export async function executeBoardAICommand({ boardId, prompt, viewportCenter, s
 
     let needsPowerModel = false;
 
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const model = needsPowerModel ? POWER_MODEL : FAST_MODEL;
-      const llm = needsPowerModel ? powerLlm : fastLlm;
-      modelsUsed.add(model);
+    await withCollapsedLangChainTracing(async () => {
+      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+        const model = needsPowerModel ? POWER_MODEL : FAST_MODEL;
+        const llm = needsPowerModel ? powerLlm : fastLlm;
+        modelsUsed.add(model);
 
-      const roundSpan = await startRoundSpan(traceCtx, { round, model });
-      const response = await llm.bindTools(tools).invoke(messages) as AIMessage;
-      messages.push(response);
+        const response = await llm.bindTools(tools).invoke(messages, {
+          metadata: { model, round },
+          tags: [`model:${model}`, `round:${round}`],
+          runName: `round_${round}_${model}`,
+        }) as AIMessage;
+        messages.push(response);
 
-      const toolCalls = response.tool_calls ?? [];
-      await endRoundSpan(roundSpan, { model, toolCalls: toolCalls.map((tc) => tc.name) });
+        const toolCalls = response.tool_calls ?? [];
 
-      if (toolCalls.length === 0) {
-        completed = true;
-        break;
+        if (toolCalls.length === 0) {
+          completed = true;
+          break;
+        }
+
+        // Escalate to power model if layout tools are invoked
+        if (!needsPowerModel && toolCalls.some((tc) => LAYOUT_TOOLS.has(tc.name))) {
+          needsPowerModel = true;
+        }
+
+        for (const toolCall of toolCalls) {
+          const tool = tools.find((t) => t.name === toolCall.name);
+          const result = tool
+            ? await tool.invoke(toolCall.args)
+            : JSON.stringify({ error: `Unknown tool: ${toolCall.name}` });
+          messages.push(new ToolMessage({
+            content: typeof result === 'string' ? result : JSON.stringify(result),
+            tool_call_id: toolCall.id!,
+            name: toolCall.name,
+          }));
+        }
       }
-
-      // Escalate to power model if layout tools are invoked
-      if (!needsPowerModel && toolCalls.some((tc) => LAYOUT_TOOLS.has(tc.name))) {
-        needsPowerModel = true;
-      }
-
-      for (const toolCall of toolCalls) {
-        const tool = tools.find((t) => t.name === toolCall.name);
-        const result = tool
-          ? await tool.invoke(toolCall.args)
-          : JSON.stringify({ error: `Unknown tool: ${toolCall.name}` });
-        messages.push(new ToolMessage({
-          content: typeof result === 'string' ? result : JSON.stringify(result),
-          tool_call_id: toolCall.id!,
-        }));
-      }
-    }
+    });
 
     mutationSummary = toolRunner.applyToDoc();
   } catch (err: unknown) {

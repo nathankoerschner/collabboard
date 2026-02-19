@@ -2,9 +2,8 @@ export interface TraceContext {
   enabled: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   trace?: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  rootSpan?: any;
   redacted?: boolean;
+  callbacks?: unknown[];
 }
 
 function background(task: Promise<unknown>, label: string): void {
@@ -21,7 +20,7 @@ async function getRunTreeCtor() {
 
   runTreeCtorPromise = (async () => {
     const apiKey = process.env.LANGSMITH_API_KEY;
-    if (!apiKey || process.env.LANGSMITH_TRACING === 'false') return null;
+    if (!apiKey) return null;
 
     try {
       const { RunTree } = await import('langsmith');
@@ -53,51 +52,68 @@ export async function startAITrace({ boardId, userId, prompt, viewportCenter }: 
       },
     });
     background(trace.postRun(), 'LangSmith trace post failed');
-
-    const rootSpan = trace.createChild({
-      name: 'ai_command_execution',
-      run_type: 'chain',
-      inputs: redacted ? { redacted: true } : { prompt, viewportCenter },
-      extra: {
-        metadata: { boardId, viewportCenter },
-      },
-    });
-    background(rootSpan.postRun(), 'LangSmith root span post failed');
-
-    return { enabled: true, trace, rootSpan, redacted };
+    return { enabled: true, trace, redacted };
   } catch (err: unknown) {
     console.warn('LangSmith trace start failed:', (err as Error)?.message || err);
     return { enabled: false };
   }
 }
 
-export async function startRoundSpan(traceCtx: TraceContext, { round, model }: { round: number; model: string }): Promise<unknown> {
-  if (!traceCtx?.enabled || !traceCtx.rootSpan) return null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let getLangchainCallbacksFn: ((runTree: any) => Promise<any>) | null = null;
+
+async function loadGetLangchainCallbacks() {
+  if (getLangchainCallbacksFn !== undefined && getLangchainCallbacksFn !== null) return getLangchainCallbacksFn;
   try {
-    const span = traceCtx.rootSpan.createChild({
-      name: `llm_round_${round}`,
-      run_type: 'llm',
-      extra: {
-        metadata: { model, round },
-      },
-    });
-    background(span.postRun(), `LangSmith round ${round} span post failed`);
-    return span;
+    const mod = await import('langsmith/langchain');
+    getLangchainCallbacksFn = mod.getLangchainCallbacks;
+    return getLangchainCallbacksFn;
   } catch {
+    getLangchainCallbacksFn = null;
     return null;
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function endRoundSpan(span: any, { model, toolCalls }: { model: string; toolCalls: string[] }): Promise<void> {
-  if (!span) return;
+export async function getTraceCallbacks(traceCtx: TraceContext): Promise<unknown[] | undefined> {
+  if (!traceCtx?.enabled || !traceCtx.trace) return undefined;
+  if (traceCtx.callbacks) return traceCtx.callbacks;
   try {
-    await span.end({
-      outputs: { model, toolCalls },
-    });
-    await span.patchRun();
+    const fn = await loadGetLangchainCallbacks();
+    if (!fn) return undefined;
+    const callbacks = await fn(traceCtx.trace);
+    traceCtx.callbacks = callbacks ? [callbacks] : undefined;
+    return traceCtx.callbacks;
   } catch {
-    // swallow
+    return undefined;
+  }
+}
+
+let traceSuppressionDepth = 0;
+let previousLangsmithTracing: string | undefined;
+
+export async function withCollapsedLangChainTracing<T>(fn: () => Promise<T>): Promise<T> {
+  if (process.env.LANGSMITH_COLLAPSE_RUNS === 'false') {
+    return fn();
+  }
+
+  if (traceSuppressionDepth === 0) {
+    previousLangsmithTracing = process.env.LANGSMITH_TRACING;
+    process.env.LANGSMITH_TRACING = 'false';
+  }
+  traceSuppressionDepth += 1;
+
+  try {
+    return await fn();
+  } finally {
+    traceSuppressionDepth -= 1;
+    if (traceSuppressionDepth === 0) {
+      if (previousLangsmithTracing === undefined) {
+        delete process.env.LANGSMITH_TRACING;
+      } else {
+        process.env.LANGSMITH_TRACING = previousLangsmithTracing;
+      }
+      previousLangsmithTracing = undefined;
+    }
   }
 }
 
@@ -144,19 +160,6 @@ export async function finishAITrace(traceCtx: TraceContext, payload: { createdId
   if (escalated) modelTags.push('escalated');
 
   try {
-    if (traceCtx.rootSpan) {
-      await traceCtx.rootSpan.end({
-        outputs: {
-          createdIds: payload.createdIds,
-          updatedIds: payload.updatedIds,
-          deletedIds: payload.deletedIds,
-          errorCount: payload.errors?.length || 0,
-        },
-        error: payload.errors?.length ? payload.errors[0] : undefined,
-      });
-      await traceCtx.rootSpan.patchRun();
-    }
-
     // Patch metadata and tags onto the trace for first-class LangSmith filtering
     traceCtx.trace.extra = {
       ...traceCtx.trace.extra,
