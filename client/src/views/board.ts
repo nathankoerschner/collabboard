@@ -161,7 +161,6 @@ export const boardView = {
     const canvasEl = document.getElementById('board-canvas') as HTMLCanvasElement;
     const toolbar = document.getElementById('toolbar')!;
     const aiToggleBtn = document.getElementById('ai-chat-toggle');
-    const aiEnabled = true;
 
     canvas = new Canvas(canvasEl, boardManager.getObjectStore(), cursorManager, {
       onToolChange: (tool) => {
@@ -200,61 +199,56 @@ export const boardView = {
       if (aiPanelOpen) aiInput.focus();
     };
 
-    if (!aiEnabled) {
-      aiBar.remove();
-      aiToggleBtn?.remove();
-    } else {
-      const submitAICommand = async (prompt: string): Promise<void> => {
-        const trimmedPrompt = prompt.trim();
-        if (!trimmedPrompt || aiSubmitting) return;
+    const submitAICommand = async (prompt: string): Promise<void> => {
+      const trimmedPrompt = prompt.trim();
+      if (!trimmedPrompt || aiSubmitting) return;
 
-        aiSubmitting = true;
-        aiError.textContent = '';
-        (aiSpinner as HTMLElement).hidden = false;
+      aiSubmitting = true;
+      aiError.textContent = '';
+      (aiSpinner as HTMLElement).hidden = false;
 
-        try {
-          const center = canvas!.getViewportCenter();
-          await runAICommand(boardId, {
-            prompt: trimmedPrompt,
-            viewportCenter: {
-              x: center.x,
-              y: center.y,
-            },
-            userId: user?.id || (user as Record<string, unknown>)?.sub || 'anonymous',
-          });
+      try {
+        const center = canvas!.getViewportCenter();
+        await runAICommand(boardId, {
+          prompt: trimmedPrompt,
+          viewportCenter: {
+            x: center.x,
+            y: center.y,
+          },
+          userId: user?.id || (user as Record<string, unknown>)?.sub || 'anonymous',
+        });
 
-          aiInput.value = '';
-          syncAiPanel(false);
-        } catch (err: unknown) {
-          aiError.textContent = (err as Error)?.message || 'AI command failed';
-        } finally {
-          aiSubmitting = false;
-          (aiSpinner as HTMLElement).hidden = true;
-        }
-      };
+        aiInput.value = '';
+        syncAiPanel(false);
+      } catch (err: unknown) {
+        aiError.textContent = (err as Error)?.message || 'AI command failed';
+      } finally {
+        aiSubmitting = false;
+        (aiSpinner as HTMLElement).hidden = true;
+      }
+    };
 
-      aiToggleBtn?.addEventListener('click', () => {
-        syncAiPanel(!aiPanelOpen);
-      });
+    aiToggleBtn?.addEventListener('click', () => {
+      syncAiPanel(!aiPanelOpen);
+    });
 
-      aiSuggestions.addEventListener('click', async (e) => {
-        const chip = (e.target as HTMLElement).closest('.ai-suggestion-chip') as HTMLElement | null;
-        if (!chip) return;
-        const prompt = chip.textContent || '';
-        aiInput.value = prompt;
-        await submitAICommand(prompt);
-      });
+    aiSuggestions.addEventListener('click', async (e) => {
+      const chip = (e.target as HTMLElement).closest('.ai-suggestion-chip') as HTMLElement | null;
+      if (!chip) return;
+      const prompt = chip.textContent || '';
+      aiInput.value = prompt;
+      await submitAICommand(prompt);
+    });
 
-      aiForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        await submitAICommand(aiInput.value);
-      });
-    }
+    aiForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await submitAICommand(aiInput.value);
+    });
 
     window._boardKeyHandler = (e: KeyboardEvent) => {
       const isInput = (e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA';
       const isCommandToggle = (e.metaKey || e.ctrlKey) && e.key?.toLowerCase() === 'k';
-      if (isCommandToggle && aiEnabled) {
+      if (isCommandToggle) {
         e.preventDefault();
         syncAiPanel(!aiPanelOpen);
         return;

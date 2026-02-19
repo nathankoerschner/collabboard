@@ -11,10 +11,6 @@ vi.mock('../../ai/boardAgent.js', () => ({
   executeBoardAICommand: vi.fn(),
 }));
 
-vi.mock('../../ai/featureFlags.js', () => ({
-  isAIEnabled: vi.fn(),
-}));
-
 vi.mock('../../ai/rateLimit.js', () => ({
   checkAIRateLimit: vi.fn(),
 }));
@@ -22,7 +18,6 @@ vi.mock('../../ai/rateLimit.js', () => ({
 import { handleBoardRoutes } from '../boards.js';
 import { getPool } from '../../db.js';
 import { executeBoardAICommand } from '../../ai/boardAgent.js';
-import { isAIEnabled } from '../../ai/featureFlags.js';
 import { checkAIRateLimit } from '../../ai/rateLimit.js';
 
 // ── Helpers ──
@@ -72,8 +67,13 @@ function createMockRes() {
 }
 
 function mockPool(overrides: Record<string, unknown> = {}) {
+  const client = {
+    query: vi.fn().mockResolvedValue({ rows: [] }),
+    release: vi.fn(),
+  };
   const pool = {
     query: vi.fn().mockResolvedValue({ rows: [] }),
+    connect: vi.fn().mockResolvedValue(client),
     ...overrides,
   };
   vi.mocked(getPool).mockReturnValue(pool as any);
@@ -100,13 +100,15 @@ describe('GET /api/boards', () => {
     expect(res._body).toEqual(rows);
   });
 
-  test('400 without userId', async () => {
-    mockPool();
+  test('falls back to anonymous without userId', async () => {
+    const pool = mockPool();
+    pool.query.mockResolvedValue({ rows: [] });
     const req = createMockReq('GET', '/api/boards');
     const res = createMockRes();
     await handleBoardRoutes(req, res, null);
 
-    expect(res._status).toBe(400);
+    expect(res._status).toBe(200);
+    expect(pool.query).toHaveBeenCalledWith(expect.any(String), ['anonymous']);
   });
 
   test('503 without db', async () => {
@@ -122,6 +124,11 @@ describe('GET /api/boards', () => {
 describe('POST /api/boards', () => {
   test('creates board with generated ID', async () => {
     const pool = mockPool();
+    const client = await pool.connect();
+    vi.clearAllMocks();
+    vi.mocked(getPool).mockReturnValue(pool as any);
+    pool.connect.mockResolvedValue(client);
+
     const req = createMockReq('POST', '/api/boards', { name: 'New Board' });
     const res = createMockRes();
     await handleBoardRoutes(req, res, 'u1');
@@ -129,7 +136,7 @@ describe('POST /api/boards', () => {
     expect(res._status).toBe(201);
     expect((res._body as any).name).toBe('New Board');
     expect((res._body as any).id).toBeTruthy();
-    expect(pool.query).toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalled();
   });
 
   test('uses custom ID if provided', async () => {
@@ -183,19 +190,8 @@ describe('DELETE /api/boards/:id', () => {
 });
 
 describe('POST /api/boards/:id/ai/command', () => {
-  test('404 when AI disabled', async () => {
-    mockPool();
-    vi.mocked(isAIEnabled).mockReturnValue(false);
-    const req = createMockReq('POST', '/api/boards/b1/ai/command', { prompt: 'do stuff' });
-    const res = createMockRes();
-    await handleBoardRoutes(req, res, 'u1');
-
-    expect(res._status).toBe(404);
-  });
-
   test('400 without prompt', async () => {
     mockPool();
-    vi.mocked(isAIEnabled).mockReturnValue(true);
     vi.mocked(checkAIRateLimit).mockReturnValue({ allowed: true, remaining: 10, resetAt: 0, limit: 20 });
     const req = createMockReq('POST', '/api/boards/b1/ai/command', {});
     const res = createMockRes();
@@ -206,7 +202,7 @@ describe('POST /api/boards/:id/ai/command', () => {
 
   test('429 on rate limit', async () => {
     mockPool();
-    vi.mocked(isAIEnabled).mockReturnValue(true);
+
     vi.mocked(checkAIRateLimit).mockReturnValue({ allowed: false, remaining: 0, resetAt: 99999, limit: 20 });
     const req = createMockReq('POST', '/api/boards/b1/ai/command', { prompt: 'do stuff' });
     const res = createMockRes();
@@ -217,7 +213,7 @@ describe('POST /api/boards/:id/ai/command', () => {
 
   test('500 on execution error', async () => {
     mockPool();
-    vi.mocked(isAIEnabled).mockReturnValue(true);
+
     vi.mocked(checkAIRateLimit).mockReturnValue({ allowed: true, remaining: 10, resetAt: 0, limit: 20 });
     vi.mocked(executeBoardAICommand).mockRejectedValue(new Error('LLM failed'));
     const req = createMockReq('POST', '/api/boards/b1/ai/command', { prompt: 'do stuff' });
@@ -230,7 +226,7 @@ describe('POST /api/boards/:id/ai/command', () => {
 
   test('200 on success', async () => {
     mockPool();
-    vi.mocked(isAIEnabled).mockReturnValue(true);
+
     vi.mocked(checkAIRateLimit).mockReturnValue({ allowed: true, remaining: 10, resetAt: 0, limit: 20 });
     vi.mocked(executeBoardAICommand).mockResolvedValue({ ok: true } as any);
     const req = createMockReq('POST', '/api/boards/b1/ai/command', { prompt: 'create a sticky' });

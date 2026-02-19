@@ -2,7 +2,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { getPool } from '../db.js';
 import { nanoid } from 'nanoid';
 import { executeBoardAICommand } from '../ai/boardAgent.js';
-import { isAIEnabled } from '../ai/featureFlags.js';
 import { checkAIRateLimit } from '../ai/rateLimit.js';
 import { getBoardRole } from '../permissions.js';
 
@@ -169,10 +168,6 @@ export async function handleBoardRoutes(req: IncomingMessage, res: ServerRespons
   // POST /api/boards/:id/ai/command
   const aiCommandMatch = url.pathname.match(/^\/api\/boards\/([^/]+)\/ai\/command$/);
   if (req.method === 'POST' && aiCommandMatch) {
-    if (!isAIEnabled()) {
-      return json(res, 404, { error: 'AI feature is disabled' });
-    }
-
     const id = aiCommandMatch[1]!;
     const role = await getBoardRole(id, userId);
     if (authEnabled() && !role) return json(res, 403, { error: 'Access denied' });
