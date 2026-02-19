@@ -27,9 +27,25 @@ export class PresencePanel {
   _render(): void {
     const states = this.awareness.getStates();
     const localId = this.awareness.clientID;
-    let html = '';
 
+    // Deduplicate: keep only the highest clientId per user key
+    // (reconnects create new clientIds; old awareness states may linger)
+    const latestClientByUserKey = new Map<string, number>();
     for (const [clientId, state] of states) {
+      const user = (state.user || {}) as { id?: string; sub?: string; name?: string };
+      if (!user.name && !user.id && !user.sub) continue; // skip headless/empty states
+      const userKey = this._getUserKey(clientId, user);
+      const existing = latestClientByUserKey.get(userKey);
+      if (existing === undefined || clientId > existing) {
+        latestClientByUserKey.set(userKey, clientId);
+      }
+    }
+    const activeClientIds = new Set(latestClientByUserKey.values());
+
+    let html = '';
+    for (const clientId of activeClientIds) {
+      const state = states.get(clientId);
+      if (!state) continue;
       const user = (state.user || {}) as { id?: string; sub?: string; name?: string; color?: string };
       const name = user.name || 'Anonymous';
       const color = user.color || getPresenceColor(user, clientId);
@@ -46,6 +62,12 @@ export class PresencePanel {
     }
 
     this.el.innerHTML = html;
+  }
+
+  private _getUserKey(clientId: number, user: { id?: string; sub?: string }): string {
+    const stableId = user.id || user.sub;
+    if (typeof stableId === 'string' && stableId.length > 0) return stableId;
+    return `client:${clientId}`;
   }
 
   destroy(): void {
