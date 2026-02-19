@@ -87,12 +87,6 @@ export const boardView = {
                 <line x1="2" y1="17" x2="22" y2="17"/>
               </svg>
             </button>
-            <button class="toolbar-btn" data-tool="connector" data-tooltip="Connector" aria-label="Connector tool">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="5" y1="19" x2="19" y2="5"/>
-                <polyline points="15 5 19 5 19 9"/>
-              </svg>
-            </button>
           </div>
           <div class="toolbar-group">
             <button class="toolbar-btn" id="ai-chat-toggle" data-tooltip="Ask AI" aria-label="Open AI chat">
@@ -389,7 +383,7 @@ export const boardView = {
       }
 
       if (isInput) return;
-      const keyMap: Record<string, ToolName> = { v: 'select', s: 'sticky', t: 'text', f: 'frame', c: 'connector' };
+      const keyMap: Record<string, ToolName> = { v: 'select', s: 'sticky', t: 'text', f: 'frame' };
       const tool = keyMap[e.key?.toLowerCase()];
       if (tool && !e.metaKey && !e.ctrlKey) {
         canvas!.setTool(tool);

@@ -10,6 +10,7 @@ export const AI_TOOL_NAMES = [
   'createConnector',
   'createText',
   'moveObject',
+  'arrangeObjectsInGrid',
   'resizeObject',
   'updateText',
   'changeColor',
@@ -114,6 +115,8 @@ export function validateToolArgs(toolName: string, rawArgs: unknown = {}): Recor
       toPoint: tp && typeof tp === 'object'
         ? { x: clampNumber(tp.x, -100000, 100000, 0), y: clampNumber(tp.y, -100000, 100000, 0) }
         : null,
+      fromT: typeof args.fromT === 'number' ? Math.max(0, Math.min(1, args.fromT)) : null,
+      toT: typeof args.toT === 'number' ? Math.max(0, Math.min(1, args.toT)) : null,
       style: (CONNECTOR_STYLES as readonly string[]).includes(args.style as string) ? args.style : 'arrow',
     };
   }
@@ -145,6 +148,20 @@ export function validateToolArgs(toolName: string, rawArgs: unknown = {}): Recor
       objectId: typeof args.objectId === 'string' ? args.objectId : null,
       width: clampNumber(args.width, 24, 4000, 120),
       height: clampNumber(args.height, 24, 4000, 80),
+    };
+  }
+
+  if (toolName === 'arrangeObjectsInGrid') {
+    const objectIds = Array.isArray(args.objectIds)
+      ? args.objectIds.filter((id): id is string => typeof id === 'string').slice(0, 500)
+      : [];
+    return {
+      objectIds,
+      columns: typeof args.columns === 'number' ? clampNumber(args.columns, 1, 24, 3) : null,
+      gapX: clampNumber(args.gapX, 0, 1000, 24),
+      gapY: clampNumber(args.gapY, 0, 1000, 24),
+      originX: typeof args.originX === 'number' ? clampNumber(args.originX, -100000, 100000, 0) : null,
+      originY: typeof args.originY === 'number' ? clampNumber(args.originY, -100000, 100000, 0) : null,
     };
   }
 
@@ -242,7 +259,7 @@ export function toToolDefinitions(): ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'createConnector',
-        description: 'Create connector between objects or points. Connectors have a default size of 0x0.',
+        description: 'Create connector between objects or points. Connectors have a default size of 0x0. Use fromT/toT (0-1) to attach at a specific perimeter position.',
         parameters: {
           type: 'object',
           properties: {
@@ -260,6 +277,8 @@ export function toToolDefinitions(): ChatCompletionTool[] {
               required: ['x', 'y'],
               additionalProperties: false,
             },
+            fromT: { type: 'number', description: 'Perimeter position 0-1 on source object' },
+            toT: { type: 'number', description: 'Perimeter position 0-1 on target object' },
             style: { type: 'string', enum: [...CONNECTOR_STYLES] },
           },
           additionalProperties: false,
@@ -302,6 +321,26 @@ export function toToolDefinitions(): ChatCompletionTool[] {
             y: { type: 'number' },
           },
           required: ['objectId', 'x', 'y'],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'arrangeObjectsInGrid',
+        description: 'Arrange existing objects into a deterministic grid. Use this for selected notes/items.',
+        parameters: {
+          type: 'object',
+          properties: {
+            objectIds: { type: 'array', items: { type: 'string' } },
+            columns: { type: 'number' },
+            gapX: { type: 'number' },
+            gapY: { type: 'number' },
+            originX: { type: 'number' },
+            originY: { type: 'number' },
+          },
+          required: ['objectIds'],
           additionalProperties: false,
         },
       },
@@ -437,12 +476,14 @@ const langChainSchemas: Record<string, { description: string; schema: z.ZodObjec
     }),
   },
   createConnector: {
-    description: 'Create connector between objects or points. Connectors have a default size of 0x0.',
+    description: 'Create connector between objects or points. Connectors have a default size of 0x0. Use fromT/toT (0-1) to attach at a specific perimeter position.',
     schema: z.object({
       fromId: z.string().optional().describe('Source object ID'),
       toId: z.string().optional().describe('Target object ID'),
       fromPoint: z.object({ x: z.number(), y: z.number() }).optional().describe('Source point'),
       toPoint: z.object({ x: z.number(), y: z.number() }).optional().describe('Target point'),
+      fromT: z.number().min(0).max(1).optional().describe('Perimeter position 0-1 on source object'),
+      toT: z.number().min(0).max(1).optional().describe('Perimeter position 0-1 on target object'),
       style: z.enum([...CONNECTOR_STYLES] as [string, ...string[]]).optional().describe('Connector style'),
     }),
   },
@@ -466,6 +507,17 @@ const langChainSchemas: Record<string, { description: string; schema: z.ZodObjec
       objectId: z.string().describe('Object ID'),
       x: z.number().describe('X coordinate'),
       y: z.number().describe('Y coordinate'),
+    }),
+  },
+  arrangeObjectsInGrid: {
+    description: 'Arrange existing objects into a deterministic grid. Use this for selected notes/items.',
+    schema: z.object({
+      objectIds: z.array(z.string()).describe('Object IDs to arrange'),
+      columns: z.number().optional().describe('Optional fixed column count'),
+      gapX: z.number().optional().describe('Horizontal gap in px'),
+      gapY: z.number().optional().describe('Vertical gap in px'),
+      originX: z.number().optional().describe('Optional grid origin x'),
+      originY: z.number().optional().describe('Optional grid origin y'),
     }),
   },
   resizeObject: {

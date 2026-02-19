@@ -233,18 +233,336 @@ export function findClosestPort(obj: BoardObject, px: number, py: number): Port 
   return best;
 }
 
+// ── Perimeter Parameterization ──
+
+const ELLIPSE_LUT_SAMPLES = 64;
+
+function buildEllipseArcLengthLUT(rx: number, ry: number): number[] {
+  const N = ELLIPSE_LUT_SAMPLES;
+  const lut: number[] = [0];
+  const startTheta = -Math.PI / 2;
+  let prevX = Math.cos(startTheta) * rx;
+  let prevY = Math.sin(startTheta) * ry;
+
+  for (let i = 1; i <= N; i++) {
+    const theta = startTheta + (i / N) * Math.PI * 2;
+    const x = Math.cos(theta) * rx;
+    const y = Math.sin(theta) * ry;
+    const dx = x - prevX;
+    const dy = y - prevY;
+    lut.push(lut[i - 1]! + Math.sqrt(dx * dx + dy * dy));
+    prevX = x;
+    prevY = y;
+  }
+  return lut;
+}
+
+/** Map t ∈ [0,1] clockwise from top-left along rect perimeter → world-space Point */
+export function perimeterPointRect(obj: BoardObject, t: number): Point {
+  const w = obj.width;
+  const h = obj.height;
+  const P = 2 * (w + h);
+  const d = ((t % 1) + 1) % 1 * P;
+
+  let lx: number, ly: number;
+  if (d <= w) {
+    lx = obj.x + d;
+    ly = obj.y;
+  } else if (d <= w + h) {
+    lx = obj.x + w;
+    ly = obj.y + (d - w);
+  } else if (d <= 2 * w + h) {
+    lx = obj.x + w - (d - w - h);
+    ly = obj.y + h;
+  } else {
+    lx = obj.x;
+    ly = obj.y + h - (d - 2 * w - h);
+  }
+
+  const c = getObjectCenter(obj);
+  const angle = obj.rotation || 0;
+  if (angle) return rotatePoint(lx, ly, c.x, c.y, angle);
+  return { x: lx, y: ly };
+}
+
+/** Arc-length parameterized ellipse perimeter point, t ∈ [0,1] clockwise from top */
+export function perimeterPointEllipse(obj: BoardObject, t: number): Point {
+  const rx = obj.width / 2;
+  const ry = obj.height / 2;
+  const cx = obj.x + rx;
+  const cy = obj.y + ry;
+
+  const lut = buildEllipseArcLengthLUT(rx, ry);
+  const totalLen = lut[ELLIPSE_LUT_SAMPLES]!;
+  const targetLen = ((t % 1) + 1) % 1 * totalLen;
+
+  let lo = 0;
+  let hi = ELLIPSE_LUT_SAMPLES;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (lut[mid]! < targetLen) lo = mid + 1;
+    else hi = mid;
+  }
+
+  const segIdx = Math.max(0, lo - 1);
+  const segStart = lut[segIdx]!;
+  const segEnd = lut[segIdx + 1] ?? totalLen;
+  const segLen = segEnd - segStart;
+  const frac = segLen > 0 ? (targetLen - segStart) / segLen : 0;
+
+  const startTheta = -Math.PI / 2;
+  const theta = startTheta + ((segIdx + frac) / ELLIPSE_LUT_SAMPLES) * Math.PI * 2;
+  const lx = cx + Math.cos(theta) * rx;
+  const ly = cy + Math.sin(theta) * ry;
+
+  const center = getObjectCenter(obj);
+  const angle = obj.rotation || 0;
+  if (angle) return rotatePoint(lx, ly, center.x, center.y, angle);
+  return { x: lx, y: ly };
+}
+
+// ── Shape (Path2D) perimeter via ray-casting ──
+
+const SHAPE_PERIM_SAMPLES = 128;
+
+/**
+ * Sample SHAPE_PERIM_SAMPLES points on a Path2D shape outline by casting rays
+ * from the center outward at evenly-spaced angles, binary-searching for the
+ * boundary. Returns local-space points (no rotation applied).
+ */
+function sampleShapeOutline(obj: BoardObject): Point[] {
+  const def = SHAPE_DEFS.get((obj as ShapeObject).shapeKind);
+  if (!def) return [];
+
+  const path = def.path(obj.x, obj.y, obj.width, obj.height);
+  const ctx = _getTestCtx();
+  const cx = obj.x + obj.width / 2;
+  const cy = obj.y + obj.height / 2;
+  const maxR = Math.sqrt(obj.width * obj.width + obj.height * obj.height);
+
+  const points: Point[] = [];
+  // Start from top (-π/2) going clockwise, matching rect convention
+  const startAngle = -Math.PI / 2;
+
+  for (let i = 0; i < SHAPE_PERIM_SAMPLES; i++) {
+    const angle = startAngle + (i / SHAPE_PERIM_SAMPLES) * Math.PI * 2;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+
+    // Binary search: find the boundary along this ray
+    let lo = 0;
+    let hi = maxR;
+    for (let step = 0; step < 20; step++) {
+      const mid = (lo + hi) / 2;
+      if (ctx.isPointInPath(path, cx + dx * mid, cy + dy * mid)) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    points.push({ x: cx + dx * lo, y: cy + dy * lo });
+  }
+  return points;
+}
+
+/** Build arc-length LUT from sampled outline points */
+function buildShapeArcLengthLUT(pts: Point[]): number[] {
+  const n = pts.length;
+  const lut = new Array<number>(n + 1);
+  lut[0] = 0;
+  for (let i = 1; i <= n; i++) {
+    const prev = pts[i - 1]!;
+    const curr = pts[i % n]!;
+    const dx = curr.x - prev.x;
+    const dy = curr.y - prev.y;
+    lut[i] = lut[i - 1]! + Math.sqrt(dx * dx + dy * dy);
+  }
+  return lut;
+}
+
+/** Map t → world-space point on a Path2D shape perimeter */
+function perimeterPointShape(obj: BoardObject, t: number): Point {
+  const pts = sampleShapeOutline(obj);
+  if (pts.length === 0) return perimeterPointRect(obj, t);
+
+  const lut = buildShapeArcLengthLUT(pts);
+  const totalLen = lut[pts.length]!;
+  const targetLen = ((t % 1) + 1) % 1 * totalLen;
+
+  // Binary search in LUT
+  let lo = 0;
+  let hi = pts.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (lut[mid]! < targetLen) lo = mid + 1;
+    else hi = mid;
+  }
+
+  const segIdx = Math.max(0, lo - 1);
+  const segStart = lut[segIdx]!;
+  const segEnd = lut[segIdx + 1] ?? totalLen;
+  const segLen = segEnd - segStart;
+  const frac = segLen > 0 ? (targetLen - segStart) / segLen : 0;
+
+  const a = pts[segIdx]!;
+  const b = pts[(segIdx + 1) % pts.length]!;
+  const lx = a.x + frac * (b.x - a.x);
+  const ly = a.y + frac * (b.y - a.y);
+
+  // Apply rotation
+  const angle = obj.rotation || 0;
+  if (angle) {
+    const center = getObjectCenter(obj);
+    return rotatePoint(lx, ly, center.x, center.y, angle);
+  }
+  return { x: lx, y: ly };
+}
+
+/** Inverse: local point → closest t on Path2D shape perimeter */
+function nearestPerimeterTShape(obj: BoardObject, lx: number, ly: number): number {
+  const pts = sampleShapeOutline(obj);
+  if (pts.length === 0) return nearestPerimeterTRect(obj, lx, ly);
+
+  const lut = buildShapeArcLengthLUT(pts);
+  const totalLen = lut[pts.length]!;
+
+  let bestDist = Infinity;
+  let bestArcLen = 0;
+
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i]!;
+    const b = pts[(i + 1) % pts.length]!;
+    const edx = b.x - a.x;
+    const edy = b.y - a.y;
+    const segLen = Math.sqrt(edx * edx + edy * edy);
+    if (segLen === 0) continue;
+
+    const t = Math.max(0, Math.min(1, ((lx - a.x) * edx + (ly - a.y) * edy) / (segLen * segLen)));
+    const cx = a.x + t * edx;
+    const cy = a.y + t * edy;
+    const dist = (lx - cx) * (lx - cx) + (ly - cy) * (ly - cy);
+
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestArcLen = lut[i]! + t * segLen;
+    }
+  }
+
+  return totalLen > 0 ? bestArcLen / totalLen : 0;
+}
+
+/** Dispatcher: perimeterPoint for any object type */
+export function perimeterPoint(obj: BoardObject, t: number): Point {
+  if (obj.type === 'ellipse') return perimeterPointEllipse(obj, t);
+  if (obj.type === 'shape') {
+    const kind = (obj as ShapeObject).shapeKind;
+    if (kind === 'ellipse' || kind === 'circle') return perimeterPointEllipse(obj, t);
+    return perimeterPointShape(obj, t);
+  }
+  return perimeterPointRect(obj, t);
+}
+
+/** Inverse: world point → closest t on rect perimeter */
+function nearestPerimeterTRect(obj: BoardObject, lx: number, ly: number): number {
+  const ox = obj.x;
+  const oy = obj.y;
+  const w = obj.width;
+  const h = obj.height;
+  const P = 2 * (w + h);
+
+  const edges: [number, number, number, number, number][] = [
+    [ox, oy, ox + w, oy, 0],
+    [ox + w, oy, ox + w, oy + h, w],
+    [ox + w, oy + h, ox, oy + h, w + h],
+    [ox, oy + h, ox, oy, 2 * w + h],
+  ];
+
+  let bestDist = Infinity;
+  let bestD = 0;
+
+  for (const [ax, ay, bx, by, dOffset] of edges) {
+    const edx = bx - ax;
+    const edy = by - ay;
+    const segLen = Math.sqrt(edx * edx + edy * edy);
+    if (segLen === 0) continue;
+
+    const t = Math.max(0, Math.min(1, ((lx - ax) * edx + (ly - ay) * edy) / (segLen * segLen)));
+    const cx = ax + t * edx;
+    const cy = ay + t * edy;
+    const dist = (lx - cx) * (lx - cx) + (ly - cy) * (ly - cy);
+
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestD = dOffset + t * segLen;
+    }
+  }
+
+  return bestD / P;
+}
+
+/** Inverse: world point → closest t on ellipse perimeter */
+function nearestPerimeterTEllipse(obj: BoardObject, lx: number, ly: number): number {
+  const cx = obj.x + obj.width / 2;
+  const cy = obj.y + obj.height / 2;
+  const rx = obj.width / 2;
+  const ry = obj.height / 2;
+
+  const angle = Math.atan2(ly - cy, lx - cx);
+  const startTheta = -Math.PI / 2;
+  let angleFrac = (angle - startTheta) / (Math.PI * 2);
+  angleFrac = ((angleFrac % 1) + 1) % 1;
+
+  const lut = buildEllipseArcLengthLUT(rx, ry);
+  const totalLen = lut[ELLIPSE_LUT_SAMPLES]!;
+
+  const samplePos = angleFrac * ELLIPSE_LUT_SAMPLES;
+  const lo = Math.floor(samplePos);
+  const hi = Math.min(lo + 1, ELLIPSE_LUT_SAMPLES);
+  const frac = samplePos - lo;
+  const arcLen = lut[lo]! + frac * (lut[hi]! - lut[lo]!);
+
+  return arcLen / totalLen;
+}
+
+/** Inverse: world point → closest perimeter t for any object */
+export function nearestPerimeterT(obj: BoardObject, px: number, py: number): number {
+  const c = getObjectCenter(obj);
+  const local = inverseRotatePoint(px, py, c.x, c.y, obj.rotation || 0);
+
+  if (obj.type === 'ellipse') return nearestPerimeterTEllipse(obj, local.x, local.y);
+  if (obj.type === 'shape') {
+    const kind = (obj as ShapeObject).shapeKind;
+    if (kind === 'ellipse' || kind === 'circle') return nearestPerimeterTEllipse(obj, local.x, local.y);
+    return nearestPerimeterTShape(obj, local.x, local.y);
+  }
+  return nearestPerimeterTRect(obj, local.x, local.y);
+}
+
+// ── Connector Endpoints ──
+
 export function getConnectorEndpoints(connector: BoardObject, objectsById: Map<string, BoardObject>): { start: Point | null; end: Point | null } {
   const conn = connector as import('../types.js').Connector;
   const fromObj = conn.fromId ? objectsById.get(conn.fromId) ?? null : null;
   const toObj = conn.toId ? objectsById.get(conn.toId) ?? null : null;
 
-  const start = fromObj && conn.fromPort
-    ? getPortPosition(fromObj, conn.fromPort)
-    : conn.fromPoint || null;
+  // Resolution order: fromT → fromPort → fromPoint
+  let start: Point | null;
+  if (fromObj && conn.fromT != null) {
+    start = perimeterPoint(fromObj, conn.fromT);
+  } else if (fromObj && conn.fromPort) {
+    start = getPortPosition(fromObj, conn.fromPort);
+  } else {
+    start = conn.fromPoint || null;
+  }
 
-  const end = toObj && conn.toPort
-    ? getPortPosition(toObj, conn.toPort)
-    : conn.toPoint || null;
+  let end: Point | null;
+  if (toObj && conn.toT != null) {
+    end = perimeterPoint(toObj, conn.toT);
+  } else if (toObj && conn.toPort) {
+    end = getPortPosition(toObj, conn.toPort);
+  } else {
+    end = conn.toPoint || null;
+  }
 
   return { start, end };
 }

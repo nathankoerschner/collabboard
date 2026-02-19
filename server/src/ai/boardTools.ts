@@ -43,6 +43,10 @@ interface ToolCallEntry {
   result: unknown;
 }
 
+const READ_ONLY_TOOLS = new Set<string>(['getBoardState']);
+const DEFERRED_CREATE_TOOLS = new Set<string>(['createFrame']);
+const LAYOUT_UPDATE_TOOLS = new Set<string>(['moveObject', 'resizeObject']);
+
 export class BoardToolRunner {
   doc: YTypes.Doc;
   objects: Map<string, Record<string, unknown>>;
@@ -100,7 +104,27 @@ export class BoardToolRunner {
     const result = (this as Record<string, unknown> as Record<string, (args: Record<string, unknown>) => unknown>)[toolName]!(args);
 
     this.toolCalls.push({ toolName, args, result });
+    if (!READ_ONLY_TOOLS.has(toolName) && this._shouldFlushImmediately(toolName, args)) {
+      // Flush mutating changes immediately so clients can render updates
+      // while the agent continues planning/finalizing subsequent steps.
+      this.applyToDoc({ normalizeFrameWrap: false });
+    }
     return result;
+  }
+
+  _shouldFlushImmediately(toolName: string, args: Record<string, unknown>): boolean {
+    // Frame template generation is often iterative (create -> move/resize).
+    // Defer frame writes to avoid visible reflow during AI planning.
+    if (DEFERRED_CREATE_TOOLS.has(toolName)) return false;
+
+    // If an object was created in this same command, defer follow-up layout
+    // updates so it appears at its final coordinates in one render.
+    if (LAYOUT_UPDATE_TOOLS.has(toolName)) {
+      const objectId = typeof args.objectId === 'string' ? args.objectId : null;
+      if (objectId && this.createdIds.has(objectId)) return false;
+    }
+
+    return true;
   }
 
   _nextPlacement(defaultWidth = 200, defaultHeight = 120): Point {
@@ -160,11 +184,13 @@ export class BoardToolRunner {
       if (next.fromId === id) {
         next.fromId = null;
         next.fromPort = null;
+        next.fromT = null;
         changed = true;
       }
       if (next.toId === id) {
         next.toId = null;
         next.toPort = null;
+        next.toT = null;
         changed = true;
       }
       if (changed) this._setObject(next);
@@ -247,6 +273,9 @@ export class BoardToolRunner {
 
     const defaultPoint = this._nextPlacement(0, 0);
 
+    const fromT = fromId && args.fromT != null ? args.fromT as number : null;
+    const toT = toId && args.toT != null ? args.toT as number : null;
+
     const fromPoint = fromId
       ? null
       : (args.fromPoint || { x: defaultPoint.x, y: defaultPoint.y });
@@ -262,6 +291,8 @@ export class BoardToolRunner {
       toPort: null,
       fromPoint,
       toPoint,
+      fromT,
+      toT,
       style: args.style || 'arrow',
       points: [],
     };
@@ -300,6 +331,56 @@ export class BoardToolRunner {
     const next = { ...obj, x: args.x, y: args.y };
     this._setObject(next);
     return { ok: true };
+  }
+
+  arrangeObjectsInGrid(raw: Record<string, unknown> = {}): { ok: boolean; error?: string; movedIds?: string[] } {
+    const args = validateToolArgs('arrangeObjectsInGrid', raw);
+    const requestedIds = (args.objectIds as string[]) || [];
+    const uniqueIds = [...new Set(requestedIds)];
+    const movable = uniqueIds
+      .map((id) => this.objects.get(id))
+      .filter((obj): obj is Record<string, unknown> => !!obj && obj.type !== 'connector')
+      .filter((obj) => ['sticky', 'text', 'rectangle', 'ellipse', 'frame'].includes(String(obj.type)));
+
+    if (!movable.length) return { ok: false, error: 'No valid objects to arrange' };
+
+    const sorted = [...movable].sort((a, b) => {
+      const ay = Number(a.y || 0);
+      const by = Number(b.y || 0);
+      if (ay !== by) return ay - by;
+      return Number(a.x || 0) - Number(b.x || 0);
+    });
+
+    const columns = Math.max(
+      1,
+      Math.min(
+        24,
+        Number.isFinite(args.columns as number)
+          ? Math.round(args.columns as number)
+          : Math.ceil(Math.sqrt(sorted.length))
+      )
+    );
+    const gapX = Number(args.gapX || 24);
+    const gapY = Number(args.gapY || 24);
+    const cellWidth = Math.max(...sorted.map((obj) => Number(obj.width || 0)));
+    const cellHeight = Math.max(...sorted.map((obj) => Number(obj.height || 0)));
+    const minX = Math.min(...sorted.map((obj) => Number(obj.x || 0)));
+    const minY = Math.min(...sorted.map((obj) => Number(obj.y || 0)));
+    const originX = typeof args.originX === 'number' ? Number(args.originX) : minX;
+    const originY = typeof args.originY === 'number' ? Number(args.originY) : minY;
+
+    const movedIds: string[] = [];
+    for (let i = 0; i < sorted.length; i++) {
+      const obj = sorted[i]!;
+      const col = i % columns;
+      const row = Math.floor(i / columns);
+      const x = Math.round(originX + col * (cellWidth + gapX) + (cellWidth - Number(obj.width || 0)) / 2);
+      const y = Math.round(originY + row * (cellHeight + gapY) + (cellHeight - Number(obj.height || 0)) / 2);
+      this._setObject({ ...obj, x, y });
+      movedIds.push(String(obj.id));
+    }
+
+    return { ok: true, movedIds };
   }
 
   resizeObject(raw: Record<string, unknown> = {}): { ok: boolean; error?: string } {
@@ -386,6 +467,8 @@ export class BoardToolRunner {
         toId: obj.type === 'connector' ? obj.toId : undefined,
         fromPoint: obj.type === 'connector' ? obj.fromPoint : undefined,
         toPoint: obj.type === 'connector' ? obj.toPoint : undefined,
+        fromT: obj.type === 'connector' ? obj.fromT : undefined,
+        toT: obj.type === 'connector' ? obj.toT : undefined,
         style: obj.type === 'connector' ? obj.style : undefined,
       });
     }
@@ -460,8 +543,10 @@ export class BoardToolRunner {
     });
   }
 
-  applyToDoc(): { createdIds: string[]; updatedIds: string[]; deletedIds: string[]; toolCalls: ToolCallEntry[] } {
-    this._normalizeGeneratedFrameWrap();
+  applyToDoc({ normalizeFrameWrap = true }: { normalizeFrameWrap?: boolean } = {}): { createdIds: string[]; updatedIds: string[]; deletedIds: string[]; toolCalls: ToolCallEntry[] } {
+    if (normalizeFrameWrap) {
+      this._normalizeGeneratedFrameWrap();
+    }
 
     const objectsMap = this.doc.getMap('objects');
     const zOrder = this.doc.getArray('zOrder');

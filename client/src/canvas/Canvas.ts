@@ -97,18 +97,16 @@ export class Canvas {
       },
       onBringToFront: (id) => this.objectStore.bringToFront(id),
       onCursorMove: (wx, wy) => this.cursorManager?.sendCursor(wx, wy),
-      onStartConnector: (wx, wy) => {
-        const attach = this.objectStore.getAttachableAtPoint(wx, wy);
+      onStartConnector: (wx, wy, attach) => {
         const conn = this.objectStore.startConnector(wx, wy);
 
         if (attach) {
           this.objectStore.updateConnectorEndpoint(conn.id, 'start', {
-            objectId: attach.object.id,
-            port: attach.port.name,
+            objectId: attach.objectId,
+            t: attach.t,
           });
           this.objectStore.updateConnectorEndpoint(conn.id, 'end', {
-            objectId: attach.object.id,
-            port: attach.port.name,
+            point: { x: wx, y: wy },
           });
         } else {
           this.objectStore.updateConnectorEndpoint(conn.id, 'start', { point: { x: wx, y: wy } });
@@ -117,7 +115,11 @@ export class Canvas {
 
         return conn;
       },
-      onResolveAttach: (wx, wy, connectorId) => this.objectStore.getAttachableAtPoint(wx, wy, connectorId),
+      onResolveAttach: (wx, wy, connectorId, excludeSourceId) => {
+        // Exclude both the connector itself and the source object
+        const excludeIds = [connectorId, excludeSourceId].filter((id): id is string => !!id);
+        return this.objectStore.getAttachableAtPoint(wx, wy, excludeIds, this.camera.scale);
+      },
       onConnectorEndpoint: (id, side, payload) => this.objectStore.updateConnectorEndpoint(id, side, payload),
       onFinishConnector: () => {},
     });
@@ -188,6 +190,18 @@ export class Canvas {
         skipText: obj.id === editingId,
         reveal: this._getRevealState(obj),
       });
+    }
+
+    // Draw hitbox glow for hovered/drag-target shapes
+    const hoveredHitboxId = this.inputHandler.getHoveredHitboxId();
+    const dragTargetHitboxId = this.inputHandler.getDragTargetHitboxId();
+    if (hoveredHitboxId) {
+      const glowObj = byId.get(hoveredHitboxId);
+      if (glowObj) this.renderer.drawHitboxGlow(ctx, glowObj, this.camera);
+    }
+    if (dragTargetHitboxId && dragTargetHitboxId !== hoveredHitboxId) {
+      const glowObj = byId.get(dragTargetHitboxId);
+      if (glowObj) this.renderer.drawHitboxGlow(ctx, glowObj, this.camera);
     }
 
     const selectedObjects = this.selectedIds.map((id) => byId.get(id)).filter((o): o is BoardObject => !!o);

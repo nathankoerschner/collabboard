@@ -216,6 +216,31 @@ describe('moveObject', () => {
   });
 });
 
+describe('arrangeObjectsInGrid', () => {
+  test('repositions selected objects into a deterministic grid', () => {
+    const a = createSticky('a', { x: 500, y: 400 });
+    const b = createSticky('b', { x: 100, y: 100 });
+    const c = createSticky('c', { x: 300, y: 200 });
+    const d = createSticky('d', { x: 400, y: 300 });
+
+    const result = runner.arrangeObjectsInGrid({ objectIds: [a.id, b.id, c.id, d.id], columns: 2, gapX: 20, gapY: 10 });
+    expect(result.ok).toBe(true);
+    expect(result.movedIds).toHaveLength(4);
+
+    const objs = [a.id, b.id, c.id, d.id].map((id) => runner.objects.get(id)!);
+    const xs = [...new Set(objs.map((obj) => Number(obj.x)))].sort((x, y) => x - y);
+    const ys = [...new Set(objs.map((obj) => Number(obj.y)))].sort((x, y) => x - y);
+    expect(xs).toHaveLength(2);
+    expect(ys).toHaveLength(2);
+  });
+
+  test('returns error when no movable IDs are provided', () => {
+    const result = runner.arrangeObjectsInGrid({ objectIds: ['missing-id'] });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('No valid objects');
+  });
+});
+
 describe('resizeObject', () => {
   test('success', () => {
     const shape = createShape();

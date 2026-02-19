@@ -2,13 +2,14 @@ import { nanoid } from 'nanoid';
 import * as Y from 'yjs';
 import type { AttachResult, BoardObject, ConnectorEndpointPayload, ObjectType, Palette, Point, TextStyle } from '../types.js';
 import {
-  findClosestPort,
   getConnectorEndpoints,
   getObjectAABB,
   getObjectCenter,
   getPortPosition,
+  nearestPerimeterT,
   normalizeAngle,
   objectContainsObject,
+  perimeterPoint,
   rotatePoint,
 } from '../canvas/Geometry.js';
 
@@ -222,13 +223,22 @@ export class ObjectStore {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const next: any = { ...obj };
 
-    if ('objectId' in payload) {
+    if ('t' in payload) {
+      // t-based perimeter attach
+      next[`${keyPrefix}Id`] = payload.objectId;
+      next[`${keyPrefix}T`] = payload.t;
+      next[`${keyPrefix}Port`] = null;
+      next[`${keyPrefix}Point`] = null;
+    } else if ('port' in payload) {
+      // Legacy port-based attach
       next[`${keyPrefix}Id`] = payload.objectId;
       next[`${keyPrefix}Port`] = payload.port || null;
+      next[`${keyPrefix}T`] = null;
       next[`${keyPrefix}Point`] = null;
     } else if ('point' in payload) {
       next[`${keyPrefix}Id`] = null;
       next[`${keyPrefix}Port`] = null;
+      next[`${keyPrefix}T`] = null;
       next[`${keyPrefix}Point`] = { x: payload.point.x, y: payload.point.y };
     }
 
@@ -272,18 +282,19 @@ export class ObjectStore {
         const next: any = { ...conn };
 
         if (conn.fromId && deletingIds.has(conn.fromId)) {
-          const deleted = deleting.find((o) => o.id === conn.fromId);
-          next.fromPoint = deleted && conn.fromPort ? getPortPosition(deleted, conn.fromPort) : getConnectorEndpoints(conn, new Map(all.map((o) => [o.id, o]))).start;
+          // Resolve current position before detaching
+          next.fromPoint = getConnectorEndpoints(conn, new Map(all.map((o) => [o.id, o]))).start;
           next.fromId = null;
           next.fromPort = null;
+          next.fromT = null;
           dirty = true;
         }
 
         if (conn.toId && deletingIds.has(conn.toId)) {
-          const deleted = deleting.find((o) => o.id === conn.toId);
-          next.toPoint = deleted && conn.toPort ? getPortPosition(deleted, conn.toPort) : getConnectorEndpoints(conn, new Map(all.map((o) => [o.id, o]))).end;
+          next.toPoint = getConnectorEndpoints(conn, new Map(all.map((o) => [o.id, o]))).end;
           next.toId = null;
           next.toPort = null;
+          next.toT = null;
           dirty = true;
         }
 
@@ -464,7 +475,7 @@ export class ObjectStore {
       return {
         ...base,
         content: '',
-        color: 'gray',
+        color: '#000000',
         style: { bold: false, italic: false, size: 'medium' },
         ...extra,
       } as BoardObject;
@@ -480,6 +491,8 @@ export class ObjectStore {
         toPort: null,
         fromPoint: null,
         toPoint: null,
+        fromT: null,
+        toT: null,
         style: 'arrow',
         points: [],
         ...extra,
@@ -510,14 +523,22 @@ export class ObjectStore {
   _resolveConnectorPoint(connector: BoardObject, side: 'from' | 'to'): Point | null {
     const conn = connector as import('../types.js').Connector;
     const keyId = side === 'from' ? 'fromId' : 'toId';
+    const keyT = side === 'from' ? 'fromT' : 'toT';
     const keyPort = side === 'from' ? 'fromPort' : 'toPort';
     const keyPoint = side === 'from' ? 'fromPoint' : 'toPoint';
 
-    if (conn[keyId] && conn[keyPort]) {
+    if (conn[keyId]) {
       const obj = this.getObject(conn[keyId]!);
       if (obj) {
-        const p = getPortPosition(obj, conn[keyPort]!);
-        if (p) return p;
+        // Try t-based first
+        if (conn[keyT] != null) {
+          return perimeterPoint(obj, conn[keyT]!);
+        }
+        // Fallback to port-based
+        if (conn[keyPort]) {
+          const p = getPortPosition(obj, conn[keyPort]!);
+          if (p) return p;
+        }
       }
     }
     return conn[keyPoint] || null;
@@ -631,16 +652,20 @@ export class ObjectStore {
     }
   }
 
-  getAttachableAtPoint(wx: number, wy: number, excludeId: string | null = null): AttachResult | null {
-    const all = this.getAll().filter((o) => o.type !== 'connector' && o.id !== excludeId);
+  getAttachableAtPoint(wx: number, wy: number, excludeIds: string | string[] | null = null, _scale = 1): AttachResult | null {
+    const excluded = new Set(Array.isArray(excludeIds) ? excludeIds : excludeIds ? [excludeIds] : []);
+    const all = this.getAll().filter((o) => o.type !== 'connector' && o.type !== 'frame' && !excluded.has(o.id));
+    const snapDist = 20;
+
     for (let i = all.length - 1; i >= 0; i--) {
       const obj = all[i]!;
-      const port = findClosestPort(obj, wx, wy);
-      if (!port) continue;
-      const dx = port.x - wx;
-      const dy = port.y - wy;
-      if (dx * dx + dy * dy <= 20 * 20) {
-        return { object: obj, port };
+      // Check if point is inside the shape or within snap distance of AABB
+      const aabb = getObjectAABB(obj);
+      const nearX = wx >= aabb.x - snapDist && wx <= aabb.x + aabb.width + snapDist;
+      const nearY = wy >= aabb.y - snapDist && wy <= aabb.y + aabb.height + snapDist;
+      if (nearX && nearY) {
+        const t = nearestPerimeterT(obj, wx, wy);
+        return { object: obj, t };
       }
     }
     return null;

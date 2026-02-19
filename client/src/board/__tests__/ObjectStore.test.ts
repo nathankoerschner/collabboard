@@ -25,6 +25,7 @@ function createFrame(x = 0, y = 0, w = 400, h = 300, extra: Record<string, unkno
   return store.createObject('frame', x, y, w, h, extra);
 }
 
+
 // ── Tests ──
 
 describe('createObject', () => {
@@ -546,15 +547,17 @@ describe('containment', () => {
 });
 
 describe('getAttachableAtPoint', () => {
-  test('finds nearest port when within range', () => {
+  test('finds shape and returns t when within range', () => {
     const rect = store.createObject('rectangle', 0, 0, 100, 100);
     const result = store.getAttachableAtPoint(100, 50);
     expect(result).not.toBeNull();
     expect(result!.object.id).toBe(rect.id);
-    expect(result!.port.name).toBe('e');
+    expect(typeof result!.t).toBe('number');
+    expect(result!.t).toBeGreaterThanOrEqual(0);
+    expect(result!.t).toBeLessThanOrEqual(1);
   });
 
-  test('returns null when too far from any port', () => {
+  test('returns null when too far from any shape', () => {
     store.createObject('rectangle', 0, 0, 100, 100);
     const result = store.getAttachableAtPoint(500, 500);
     expect(result).toBeNull();

@@ -15,7 +15,7 @@ export type ConnectorStyle = 'line' | 'arrow';
 export type TextSize = 'small' | 'medium' | 'large';
 export type PortName = 'n' | 'e' | 's' | 'w' | 'nw' | 'ne' | 'se' | 'sw';
 export type HandleName = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
-export type ToolName = 'select' | 'sticky' | 'rectangle' | 'ellipse' | 'text' | 'frame' | 'connector' | 'shape';
+export type ToolName = 'select' | 'sticky' | 'rectangle' | 'ellipse' | 'text' | 'frame' | 'shape';
 
 export interface Point {
   x: number;
@@ -80,6 +80,8 @@ export interface Connector extends BaseObject {
   toPort: string | null;
   fromPoint: Point | null;
   toPoint: Point | null;
+  fromT: number | null;
+  toT: number | null;
   style: ConnectorStyle | string;
   points: Point[] | string[];
 }
@@ -156,17 +158,22 @@ export interface ConnectorAttachPayload {
   port: string;
 }
 
+export interface ConnectorTAttachPayload {
+  objectId: string;
+  t: number;
+}
+
 export interface ConnectorPointPayload {
   point: Point;
 }
 
-export type ConnectorEndpointPayload = ConnectorAttachPayload | ConnectorPointPayload;
+export type ConnectorEndpointPayload = ConnectorAttachPayload | ConnectorTAttachPayload | ConnectorPointPayload;
 
 // ── Attach Result ──
 
 export interface AttachResult {
   object: BoardObject;
-  port: Port;
+  t: number;
 }
 
 // ── Callback Interfaces ──
@@ -191,8 +198,8 @@ export interface InputHandlerCallbacks {
   onEditObject?: (id: string) => void;
   onBringToFront?: (id: string) => void;
   onCursorMove?: (wx: number, wy: number) => void;
-  onStartConnector?: (wx: number, wy: number) => BoardObject | undefined;
-  onResolveAttach?: (wx: number, wy: number, connectorId: string) => AttachResult | null;
+  onStartConnector?: (wx: number, wy: number, attach?: { objectId: string; t: number }) => BoardObject | undefined;
+  onResolveAttach?: (wx: number, wy: number, connectorId: string, excludeSourceId?: string | null) => AttachResult | null;
   onConnectorEndpoint?: (id: string, side: string, payload: ConnectorEndpointPayload) => void;
   onFinishConnector?: (id: string) => void;
 }

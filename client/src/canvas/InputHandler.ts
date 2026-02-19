@@ -3,10 +3,14 @@ import { SHAPE_DEFS } from '../board/ShapeDefs.js';
 import {
   hitTestHandle,
   hitTestObjects,
+  hitTestOuterRing,
+  hitTestOuterRingTopmost,
   hitTestRotationHandle,
 } from './HitTest.js';
-import { getConnectorEndpoints, getObjectAABB, getSelectionBounds } from './Geometry.js';
+import { getConnectorEndpoints, getObjectAABB, getSelectionBounds, nearestPerimeterT, pointInObject } from './Geometry.js';
 import { Camera } from './Camera.js';
+
+const HITBOX_RING_PX = 20;
 
 type DragType = 'pan' | 'move' | 'resize' | 'rotate' | 'marquee' | 'connector-end' | 'shape-create' | null;
 
@@ -34,8 +38,11 @@ export class InputHandler {
   rotationStartAngle = 0;
   rotationAppliedDelta = 0;
   activeConnectorId: string | null = null;
+  connectorSourceObjectId: string | null = null;
   activeShapeKind: ShapeKind | null = null;
   shapePreviewRect: Bounds | null = null;
+  hoveredHitboxId: string | null = null;
+  dragTargetHitboxId: string | null = null;
 
   private readonly _onMouseDown: (e: MouseEvent) => void;
   private readonly _onMouseMove: (e: MouseEvent) => void;
@@ -86,6 +93,14 @@ export class InputHandler {
     this.selectedIds = [...ids];
   }
 
+  getHoveredHitboxId(): string | null {
+    return this.hoveredHitboxId;
+  }
+
+  getDragTargetHitboxId(): string | null {
+    return this.dragTargetHitboxId;
+  }
+
   getMarqueeRect(): Bounds | null {
     return this.marqueeRect;
   }
@@ -114,7 +129,7 @@ export class InputHandler {
       return;
     }
 
-    if (this.tool !== 'select' && this.tool !== 'connector') {
+    if (this.tool !== 'select') {
       const created = this._createForTool(wx, wy);
       if (created) {
         this._setSelection([created.id]);
@@ -123,15 +138,22 @@ export class InputHandler {
       return;
     }
 
-    if (this.tool === 'connector') {
-      const conn = this.callbacks.onStartConnector?.(wx, wy);
-      if (conn) {
-        this.activeConnectorId = conn.id;
-        this.dragging = true;
-        this.dragType = 'connector-end';
-        this._setSelection([conn.id]);
+    // Hitbox glow → start connector from perimeter
+    if (this.hoveredHitboxId && !e.shiftKey) {
+      const objects = this.getObjects();
+      const hoveredObj = objects.find((o) => o.id === this.hoveredHitboxId);
+      if (hoveredObj) {
+        const t = nearestPerimeterT(hoveredObj, wx, wy);
+        const conn = this.callbacks.onStartConnector?.(wx, wy, { objectId: hoveredObj.id, t });
+        if (conn) {
+          this.activeConnectorId = conn.id;
+          this.connectorSourceObjectId = hoveredObj.id;
+          this.dragging = true;
+          this.dragType = 'connector-end';
+          this._setSelection([conn.id]);
+        }
+        return;
       }
-      return;
     }
 
     const objects = this.getObjects();
@@ -235,7 +257,21 @@ export class InputHandler {
     const { sx, sy, wx, wy } = this._eventWorld(e);
     this.callbacks.onCursorMove?.(wx, wy);
 
-    if (!this.dragging) return;
+    if (!this.dragging) {
+      // Hover detection for hitbox glow (only in select mode)
+      if (this.tool === 'select' && !e.shiftKey) {
+        const objects = this.getObjects();
+        const ringHit = hitTestOuterRingTopmost(wx, wy, objects, HITBOX_RING_PX, this.camera.scale);
+        if (ringHit) {
+          this.hoveredHitboxId = ringHit.id;
+          this.canvasEl.style.cursor = 'crosshair';
+        } else if (this.hoveredHitboxId) {
+          this.hoveredHitboxId = null;
+          this.canvasEl.style.cursor = 'default';
+        }
+      }
+      return;
+    }
 
     if (this.dragType === 'pan') {
       const dx = sx - this.dragStartX;
@@ -281,13 +317,29 @@ export class InputHandler {
     }
 
     if (this.dragType === 'connector-end' && this.activeConnectorId) {
-      const attach = this.callbacks.onResolveAttach?.(wx, wy, this.activeConnectorId);
+      // Update fromT only when cursor is crossing over the source object
+      if (this.connectorSourceObjectId) {
+        const objects = this.getObjects();
+        const srcObj = objects.find((o) => o.id === this.connectorSourceObjectId);
+        if (srcObj && (pointInObject(wx, wy, srcObj) || hitTestOuterRing(wx, wy, srcObj, HITBOX_RING_PX, this.camera.scale))) {
+          const fromT = nearestPerimeterT(srcObj, wx, wy);
+          this.callbacks.onConnectorEndpoint?.(this.activeConnectorId, 'start', {
+            objectId: srcObj.id,
+            t: fromT,
+          });
+        }
+      }
+
+      // Resolve target (exclude source object to prevent self-connection)
+      const attach = this.callbacks.onResolveAttach?.(wx, wy, this.activeConnectorId, this.connectorSourceObjectId);
       if (attach) {
+        this.dragTargetHitboxId = attach.object.id;
         this.callbacks.onConnectorEndpoint?.(this.activeConnectorId, 'end', {
           objectId: attach.object.id,
-          port: attach.port.name,
+          t: attach.t,
         });
       } else {
+        this.dragTargetHitboxId = null;
         this.callbacks.onConnectorEndpoint?.(this.activeConnectorId, 'end', {
           point: { x: wx, y: wy },
         });
@@ -377,7 +429,9 @@ export class InputHandler {
     if (this.dragType === 'connector-end' && this.activeConnectorId) {
       this.callbacks.onFinishConnector?.(this.activeConnectorId);
       this.activeConnectorId = null;
-      this.callbacks.onToolAutoReset?.('select');
+      this.connectorSourceObjectId = null;
+      this.dragTargetHitboxId = null;
+      this.hoveredHitboxId = null;
     }
 
     this.dragging = false;
@@ -444,7 +498,6 @@ export class InputHandler {
       s: 'sticky',
       t: 'text',
       f: 'frame',
-      c: 'connector',
     };
     if (!e.metaKey && !e.ctrlKey && keyMap[key]) {
       this.callbacks.onToolShortcut?.(keyMap[key]!);

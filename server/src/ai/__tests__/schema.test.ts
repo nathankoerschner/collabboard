@@ -242,6 +242,34 @@ describe('validateToolArgs', () => {
     });
   });
 
+  describe('arrangeObjectsInGrid', () => {
+    test('normalizes objectIds and defaults', () => {
+      const result = validateToolArgs('arrangeObjectsInGrid', { objectIds: ['a', 1, 'b'] as unknown[] });
+      expect(result.objectIds).toEqual(['a', 'b']);
+      expect(result.columns).toBeNull();
+      expect(result.gapX).toBe(24);
+      expect(result.gapY).toBe(24);
+      expect(result.originX).toBeNull();
+      expect(result.originY).toBeNull();
+    });
+
+    test('clamps numeric args', () => {
+      const result = validateToolArgs('arrangeObjectsInGrid', {
+        objectIds: ['a'],
+        columns: 100,
+        gapX: -1,
+        gapY: 2000,
+        originX: 999999,
+        originY: -999999,
+      });
+      expect(result.columns).toBe(24);
+      expect(result.gapX).toBe(0);
+      expect(result.gapY).toBe(1000);
+      expect(result.originX).toBe(100000);
+      expect(result.originY).toBe(-100000);
+    });
+  });
+
   describe('resizeObject', () => {
     test('valid args', () => {
       const result = validateToolArgs('resizeObject', { objectId: 'abc', width: 300, height: 200 });
