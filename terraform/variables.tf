@@ -27,3 +27,9 @@ variable "clerk_publishable_key" {
   default     = ""
 }
 
+variable "openai_api_key" {
+  description = "OpenAI API key for AI board agent"
+  type        = string
+  sensitive   = true
+}
+

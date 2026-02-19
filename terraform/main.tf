@@ -191,6 +191,21 @@ resource "google_secret_manager_secret_version" "clerk_secret_key" {
   secret_data = var.clerk_secret_key
 }
 
+resource "google_secret_manager_secret" "openai_api_key" {
+  secret_id = "collabboard-openai-api-key"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_version" "openai_api_key" {
+  secret      = google_secret_manager_secret.openai_api_key.id
+  secret_data = var.openai_api_key
+}
+
 # ---------------------------------------------------------------------------
 # Cloud Run service account + IAM
 # ---------------------------------------------------------------------------
@@ -207,6 +222,12 @@ resource "google_secret_manager_secret_iam_member" "db_password_access" {
 
 resource "google_secret_manager_secret_iam_member" "clerk_secret_access" {
   secret_id = google_secret_manager_secret.clerk_secret_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.cloud_run.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "openai_api_key_access" {
+  secret_id = google_secret_manager_secret.openai_api_key.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.cloud_run.email}"
 }
@@ -277,6 +298,16 @@ resource "google_cloud_run_v2_service" "collabboard" {
         value = var.clerk_publishable_key
       }
 
+      env {
+        name = "OPENAI_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.openai_api_key.secret_id
+            version = "latest"
+          }
+        }
+      }
+
       startup_probe {
         http_get {
           path = "/api/health"
@@ -303,6 +334,7 @@ resource "google_cloud_run_v2_service" "collabboard" {
     google_project_service.apis,
     google_secret_manager_secret_iam_member.clerk_secret_access,
     google_secret_manager_secret_iam_member.db_password_access,
+    google_secret_manager_secret_iam_member.openai_api_key_access,
   ]
 }
 
