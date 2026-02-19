@@ -1,4 +1,7 @@
 import type { ChatCompletionTool } from 'openai/resources/chat/completions';
+import { DynamicStructuredTool } from '@langchain/core/tools';
+import { z } from 'zod';
+import type { BoardToolRunner } from './boardTools.js';
 
 export const AI_TOOL_NAMES = [
   'createStickyNote',
@@ -396,4 +399,128 @@ export function toToolDefinitions(): ChatCompletionTool[] {
       },
     },
   ];
+}
+
+const paletteEnum = z.enum([...PALETTE_NAMES] as [string, ...string[]]);
+
+const langChainSchemas: Record<string, { description: string; schema: z.ZodObject<z.ZodRawShape> }> = {
+  createStickyNote: {
+    description: 'Create a sticky note. Default size is 150x150. Omit x/y to place near viewport center. When placing inside a frame, set x/y within the frame bounds so it becomes a child of that frame.',
+    schema: z.object({
+      text: z.string().describe('Sticky note text'),
+      x: z.number().optional().describe('X coordinate'),
+      y: z.number().optional().describe('Y coordinate'),
+      width: z.number().optional().describe('Width'),
+      height: z.number().optional().describe('Height'),
+      color: paletteEnum.optional().describe('Color'),
+    }),
+  },
+  createShape: {
+    description: 'Create a rectangle or ellipse. Default size is 200x120.',
+    schema: z.object({
+      type: z.enum([...SHAPE_TYPES] as [string, ...string[]]).describe('Shape type'),
+      x: z.number().optional().describe('X coordinate'),
+      y: z.number().optional().describe('Y coordinate'),
+      width: z.number().optional().describe('Width'),
+      height: z.number().optional().describe('Height'),
+      color: paletteEnum.optional().describe('Color'),
+    }),
+  },
+  createFrame: {
+    description: 'Create a labeled section container. Use frames for categories/quadrants/columns where users will later add stickies. Width/height are the ACTUAL frame dimensions (outer bounds). Frame title bar height is 32px and should remain reserved for title/selection behavior. Deterministic sticky-fit sizing: size section frames to fit 6 default stickies in a 3x2 grid with fixed 24px gaps. With 150x150 stickies, required note area is 498x324 (3*150 + 2*24 by 2*150 + 24). Add fixed 24px inner padding on all sides of that note area and keep it below the title bar, so minimum ACTUAL section frame size is 546x404. For placement/containment, always use ACTUAL frame dimensions (not usable dimensions). Keep sibling spacing deterministic with fixed 24px gaps, fixed 24px parent padding, and left-to-right then top-to-bottom placement. For N equal columns use columnWidth = floor((parentUsableWidth - (N - 1) * 24) / N). Outside-frame wrap rule: include ALL generated section-fill frames when computing outer bounds. Account for the top title bar by reserving (32 + 24) at the top of inner content, then compute deterministic outer bounds from inner extents: left = minInnerX - 24, top = minInnerY - (32 + 24), right = maxInnerRight + 24, bottom = maxInnerBottom + 24.',
+    schema: z.object({
+      title: z.string().optional().describe('Frame title'),
+      x: z.number().optional().describe('X coordinate'),
+      y: z.number().optional().describe('Y coordinate'),
+      width: z.number().optional().describe('Width'),
+      height: z.number().optional().describe('Height'),
+    }),
+  },
+  createConnector: {
+    description: 'Create connector between objects or points. Connectors have a default size of 0x0.',
+    schema: z.object({
+      fromId: z.string().optional().describe('Source object ID'),
+      toId: z.string().optional().describe('Target object ID'),
+      fromPoint: z.object({ x: z.number(), y: z.number() }).optional().describe('Source point'),
+      toPoint: z.object({ x: z.number(), y: z.number() }).optional().describe('Target point'),
+      style: z.enum([...CONNECTOR_STYLES] as [string, ...string[]]).optional().describe('Connector style'),
+    }),
+  },
+  createText: {
+    description: 'Create a text object. Default size is 220x60.',
+    schema: z.object({
+      content: z.string().describe('Text content'),
+      x: z.number().optional().describe('X coordinate'),
+      y: z.number().optional().describe('Y coordinate'),
+      width: z.number().optional().describe('Width'),
+      height: z.number().optional().describe('Height'),
+      fontSize: z.enum([...TEXT_SIZES] as [string, ...string[]]).optional().describe('Font size'),
+      bold: z.boolean().optional().describe('Bold'),
+      italic: z.boolean().optional().describe('Italic'),
+      color: paletteEnum.optional().describe('Color'),
+    }),
+  },
+  moveObject: {
+    description: 'Move an object to absolute x/y world coordinates.',
+    schema: z.object({
+      objectId: z.string().describe('Object ID'),
+      x: z.number().describe('X coordinate'),
+      y: z.number().describe('Y coordinate'),
+    }),
+  },
+  resizeObject: {
+    description: 'Resize an object; keeps top-left anchored.',
+    schema: z.object({
+      objectId: z.string().describe('Object ID'),
+      width: z.number().describe('Width'),
+      height: z.number().describe('Height'),
+    }),
+  },
+  updateText: {
+    description: 'Update text content on a sticky or text object.',
+    schema: z.object({
+      objectId: z.string().describe('Object ID'),
+      newText: z.string().describe('New text content'),
+    }),
+  },
+  changeColor: {
+    description: 'Update object color using palette token.',
+    schema: z.object({
+      objectId: z.string().describe('Object ID'),
+      color: paletteEnum.describe('New color'),
+    }),
+  },
+  rotateObject: {
+    description: 'Rotate object by setting angle in degrees.',
+    schema: z.object({
+      objectId: z.string().describe('Object ID'),
+      angleDegrees: z.number().describe('Angle in degrees'),
+    }),
+  },
+  deleteObject: {
+    description: 'Delete an object by id.',
+    schema: z.object({
+      objectId: z.string().describe('Object ID'),
+    }),
+  },
+  getBoardState: {
+    description: 'Read compact board state for planning tool calls.',
+    schema: z.object({}),
+  },
+};
+
+export function toLangChainTools(runner: BoardToolRunner): DynamicStructuredTool[] {
+  return AI_TOOL_NAMES.map((toolName) => {
+    const def = langChainSchemas[toolName];
+    if (!def) throw new Error(`Missing LangChain schema for tool: ${toolName}`);
+    return new DynamicStructuredTool({
+      name: toolName,
+      description: def.description,
+      schema: def.schema,
+      func: async (args: Record<string, unknown>) => {
+        const result = runner.invoke(toolName, args);
+        return JSON.stringify(result);
+      },
+    });
+  });
 }

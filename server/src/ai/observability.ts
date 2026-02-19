@@ -65,72 +65,15 @@ export async function startAITrace({ boardId, userId, prompt, viewportCenter }: 
   }
 }
 
-export async function recordLLMGeneration(traceCtx: TraceContext, payload: { model: string; input: unknown; output: unknown; usage: unknown; metadata: unknown; error?: unknown }): Promise<unknown> {
-  if (!traceCtx?.enabled) return null;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const usage = payload.usage as any;
-    const run = await traceCtx.trace.createChild({
-      name: 'openai_tool_calling',
-      run_type: 'llm',
-      inputs: traceCtx.redacted ? { redacted: true } : payload.input,
-      extra: {
-        metadata: {
-          ls_model_name: payload.model,
-          ls_provider: 'openai',
-          model: payload.model,
-          ...(payload.metadata as Record<string, unknown>),
-        },
-      },
-    });
-    await run.postRun();
-
-    const usageMetadata = usage
-      ? {
-          input_tokens: usage.prompt_tokens ?? 0,
-          output_tokens: usage.completion_tokens ?? 0,
-          total_tokens: usage.total_tokens ?? 0,
-        }
-      : undefined;
-
-    await run.end({
-      outputs: traceCtx.redacted
-        ? { redacted: true }
-        : { response: payload.output, ...(usageMetadata && { usage_metadata: usageMetadata }) },
-      error: payload.error ? String(payload.error) : undefined,
-    });
-    await run.patchRun();
-    return run;
-  } catch (err: unknown) {
-    console.warn('LangSmith LLM run failed:', (err as Error)?.message || err);
-    return null;
-  }
+// LangChain auto-traces LLM generations and tool calls to LangSmith when
+// LANGSMITH_API_KEY is set. These no-op stubs preserve the export signature
+// for any callers that still reference them (e.g. tests).
+export async function recordLLMGeneration(_traceCtx: TraceContext, _payload: unknown): Promise<unknown> {
+  return null;
 }
 
-export async function recordToolCall(traceCtx: TraceContext, payload: { toolName: string; toolCallId: string; round: number; args: unknown; result: unknown; error?: string; durationMs: number }): Promise<void> {
-  if (!traceCtx?.enabled) return;
-  try {
-    const run = await traceCtx.trace.createChild({
-      name: `tool:${payload.toolName}`,
-      run_type: 'tool',
-      inputs: traceCtx.redacted ? { redacted: true } : payload.args,
-      extra: {
-        metadata: {
-          toolCallId: payload.toolCallId,
-          round: payload.round,
-          durationMs: payload.durationMs,
-        },
-      },
-    });
-    await run.postRun();
-    await run.end({
-      outputs: traceCtx.redacted ? { redacted: true } : { result: payload.result },
-      error: payload.error || undefined,
-    });
-    await run.patchRun();
-  } catch (err: unknown) {
-    console.warn('LangSmith tool run failed:', (err as Error)?.message || err);
-  }
+export async function recordToolCall(_traceCtx: TraceContext, _payload: unknown): Promise<void> {
+  // no-op — LangChain traces tool calls automatically
 }
 
 export async function recordAIError(traceCtx: TraceContext, payload: { message: string; stack?: string; input: unknown; metadata: unknown }): Promise<void> {

@@ -1,34 +1,14 @@
-import OpenAI from 'openai';
+import { ChatOpenAI } from '@langchain/openai';
+import { createReactAgent } from '@langchain/langgraph/prebuilt';
+import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 // @ts-expect-error y-websocket/bin/utils has no types
 import { getYDoc } from 'y-websocket/bin/utils';
 import { BoardToolRunner } from './boardTools.js';
-import { normalizeViewportCenter, toToolDefinitions } from './schema.js';
-import { finishAITrace, recordAIError, recordLLMGeneration, recordToolCall, startAITrace } from './observability.js';
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import { normalizeViewportCenter, toLangChainTools } from './schema.js';
+import { finishAITrace, recordAIError, startAITrace } from './observability.js';
 
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-5.2';
 const MAX_TOOL_ROUNDS = 8;
-
-let openaiClient: OpenAI | null = null;
-
-function getOpenAI(): OpenAI {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY is not configured');
-  }
-  if (!openaiClient) {
-    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  }
-  return openaiClient;
-}
-
-function safeJsonParse(raw: unknown, fallback: Record<string, unknown> = {}): Record<string, unknown> {
-  if (!raw || typeof raw !== 'string') return fallback;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
-}
 
 function buildSystemPrompt(): string {
   return [
@@ -100,103 +80,37 @@ export async function executeBoardAICommand({ boardId, prompt, viewportCenter, u
       actorId: `ai:${userId || 'anonymous'}`,
     });
 
-    const tools = toToolDefinitions();
-    const openai = getOpenAI();
+    const llm = new ChatOpenAI({
+      model: DEFAULT_MODEL,
+      temperature: 0,
+      openAIApiKey: process.env.OPENAI_API_KEY,
+    });
 
-    const messages: ChatCompletionMessageParam[] = [
-      { role: 'system', content: buildSystemPrompt() },
+    const tools = toLangChainTools(toolRunner);
+
+    // eslint-disable-next-line deprecation/deprecation
+    const agent = createReactAgent({
+      llm,
+      tools,
+    });
+
+    // Each round = 1 LLM call + 1 tool execution = 2 graph steps
+    const result = await agent.invoke(
       {
-        role: 'user',
-        content: JSON.stringify({
-          prompt,
-          viewportCenter: normalizedViewport,
-        }),
+        messages: [
+          new SystemMessage(buildSystemPrompt()),
+          new HumanMessage(JSON.stringify({
+            prompt,
+            viewportCenter: normalizedViewport,
+          })),
+        ],
       },
-    ];
+      { recursionLimit: MAX_TOOL_ROUNDS * 2 },
+    );
 
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const llmStartedAt = Date.now();
-      const completion = await openai.chat.completions.create({
-        model: DEFAULT_MODEL,
-        temperature: 0.1,
-        tool_choice: 'auto',
-        messages,
-        tools,
-      });
-
-      const choice = completion.choices?.[0]?.message;
-      if (!choice) break;
-
-      await recordLLMGeneration(traceCtx, {
-        model: DEFAULT_MODEL,
-        input: messages,
-        output: choice,
-        usage: completion.usage,
-        metadata: {
-          round,
-          durationMs: Date.now() - llmStartedAt,
-          toolCallCount: choice.tool_calls?.length || 0,
-        },
-      });
-
-      messages.push({
-        role: 'assistant',
-        content: choice.content || '',
-        tool_calls: choice.tool_calls || undefined,
-      } as ChatCompletionMessageParam);
-
-      if (!choice.tool_calls?.length) {
-        completed = true;
-        break;
-      }
-
-      for (const toolCall of choice.tool_calls) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const tc = toolCall as any;
-        const toolName: string | undefined = tc.function?.name;
-        const args = safeJsonParse(tc.function?.arguments, {});
-        const toolStartedAt = Date.now();
-
-        if (!toolName) {
-          errors.push('Missing tool name in tool call');
-          continue;
-        }
-
-        try {
-          const result = toolRunner.invoke(toolName, args);
-          await recordToolCall(traceCtx, {
-            toolName,
-            toolCallId: toolCall.id,
-            round,
-            args,
-            result,
-            durationMs: Date.now() - toolStartedAt,
-          });
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify(result),
-          });
-        } catch (err: unknown) {
-          const message = `Tool ${toolName} failed: ${(err as Error).message}`;
-          errors.push(message);
-          await recordToolCall(traceCtx, {
-            toolName,
-            toolCallId: toolCall.id,
-            round,
-            args,
-            result: null,
-            error: message,
-            durationMs: Date.now() - toolStartedAt,
-          });
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({ error: message }),
-          });
-        }
-      }
-    }
+    // Check if the agent completed (last message is from AI with no tool calls)
+    const lastMessage = result.messages[result.messages.length - 1];
+    completed = lastMessage?._getType?.() === 'ai' || lastMessage?.constructor?.name === 'AIMessage';
 
     mutationSummary = toolRunner.applyToDoc();
   } catch (err: unknown) {
