@@ -29,6 +29,10 @@ function _getHitCtx(): CanvasRenderingContext2D {
 export function hitTestObjects(wx: number, wy: number, objects: BoardObject[]): { object: BoardObject; area: string } | null {
   const objectsById = new Map(objects.map((o) => [o.id, o]));
 
+  // Track the first frame whose interior was hit so we can fall through
+  // to objects rendered below it (e.g. child frames or shapes).
+  let firstFrameInside: { object: BoardObject; area: string } | null = null;
+
   for (let i = objects.length - 1; i >= 0; i--) {
     const obj = objects[i]!;
 
@@ -41,7 +45,11 @@ export function hitTestObjects(wx: number, wy: number, objects: BoardObject[]): 
 
     if (obj.type === 'frame') {
       const area = getFrameHitArea(wx, wy, obj);
-      if (area) return { object: obj, area };
+      if (area === 'title' || area === 'border') return { object: obj, area };
+      // For 'inside', remember it but keep looking for children underneath
+      if (area === 'inside' && !firstFrameInside) {
+        firstFrameInside = { object: obj, area };
+      }
       continue;
     }
 
@@ -50,7 +58,7 @@ export function hitTestObjects(wx: number, wy: number, objects: BoardObject[]): 
     }
   }
 
-  return null;
+  return firstFrameInside;
 }
 
 export function hitTestHandle(wx: number, wy: number, obj: BoardObject, scale = 1): string | null {
