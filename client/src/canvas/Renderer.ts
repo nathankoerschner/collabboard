@@ -161,7 +161,7 @@ export class Renderer {
 
   drawFrame(ctx: CanvasRenderingContext2D, obj: BoardObject): void {
     const frame = obj as import('../types.js').Frame;
-    const stroke = this._color(frame.color, '#e2e8f0');
+    const stroke = '#E3E8EF';
 
     this._drawRotatedBox(ctx, obj, (lx, ly, w, h) => {
       ctx.fillStyle = 'rgba(148, 163, 184, 0.08)';

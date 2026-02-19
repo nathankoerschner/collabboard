@@ -522,7 +522,7 @@ export class ObjectStore {
       obj.points = [];
     } else if (type === 'frame') {
       obj.title = 'Frame';
-      obj.color = '#94a3b8';
+      obj.color = '#E3E8EF';
       obj.children = [];
     } else if (type === 'shape') {
       obj.shapeKind = 'rectangle';
