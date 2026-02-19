@@ -3,12 +3,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background-color: #f8f8f8;
+  background-image: radial-gradient(circle, #d0d0d0 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
 .landing-hero {
   text-align: center;
-  color: white;
   padding: 3rem;
 }
 
@@ -17,31 +18,13 @@
   font-weight: 800;
   letter-spacing: -0.02em;
   margin-bottom: 0.5rem;
+  color: #1a1a1a;
 }
 
 .landing-subtitle {
   font-size: 1.25rem;
-  opacity: 0.9;
+  color: #666;
   margin-bottom: 2.5rem;
-}
-
-.landing-features {
-  display: flex;
-  gap: 2rem;
-  justify-content: center;
-  margin-bottom: 3rem;
-}
-
-.feature {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.95rem;
-  opacity: 0.9;
-}
-
-.feature-icon {
-  font-size: 1.2rem;
 }
 
 .btn {
@@ -57,8 +40,8 @@
 }
 
 .btn-primary {
-  background: white;
-  color: #4361ee;
+  background: #1a1a1a;
+  color: white;
   box-shadow: var(--shadow-md);
 }
 
