@@ -28,6 +28,7 @@ declare global {
       getObjectCount: () => number;
       getObjectIds: () => string[];
     } | null;
+    devAddObjects?: ((n: number) => void) | null;
   }
 }
 
@@ -157,6 +158,54 @@ export const boardView = {
     window.__collabboardDebug = {
       getObjectCount: () => boardManager?.getObjectStore().getAll().length || 0,
       getObjectIds: () => boardManager?.getObjectStore().getAll().map((obj) => obj.id) || [],
+    };
+
+    window.devAddObjects = (n: number) => {
+      if (!objectStore || n <= 0) return;
+      const stickyColors: string[] = ['yellow', 'blue', 'green', 'pink', 'purple', 'orange', 'red', 'teal'];
+      const shapeKinds: ShapeKind[] = ['rectangle', 'rounded-rectangle', 'ellipse', 'circle', 'diamond', 'hexagon', 'star', 'triangle'];
+      const shapeColors: string[] = ['#bfdbfe', '#bbf7d0', '#fecdd3', '#e9d5ff', '#fed7aa', '#99f6e4', '#fecaca'];
+      const textSamples = ['Hello', 'TODO', 'Important', 'Note', 'Idea', 'Review', 'Draft', 'Question?', 'Done!', 'WIP'];
+
+      // Spread radius grows with count so high N doesn't overcrowd
+      const radius = Math.sqrt(n) * 150;
+      const cx = canvas?.getViewportCenter().x ?? 0;
+      const cy = canvas?.getViewportCenter().y ?? 0;
+
+      const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)]!;
+      const rand = (min: number, max: number) => min + Math.random() * (max - min);
+
+      for (let i = 0; i < n; i++) {
+        const x = cx + (Math.random() - 0.5) * 2 * radius;
+        const y = cy + (Math.random() - 0.5) * 2 * radius;
+        const roll = Math.random();
+
+        if (roll < 0.4) {
+          // Sticky note
+          const size = rand(120, 200);
+          objectStore.createObject('sticky', x, y, size, size, {
+            text: pick(textSamples),
+            color: pick(stickyColors),
+          });
+        } else if (roll < 0.75) {
+          // Shape
+          const w = rand(80, 200);
+          const h = rand(80, 200);
+          objectStore.createObject('shape', x, y, w, h, {
+            shapeKind: pick(shapeKinds),
+            color: pick(shapeColors),
+            strokeColor: '#64748b',
+          });
+        } else {
+          // Text
+          objectStore.createObject('text', x, y, rand(100, 250), 40, {
+            content: pick(textSamples),
+            color: '#000000',
+            style: { bold: Math.random() > 0.7, italic: false, size: pick(['small', 'medium', 'large']) },
+          });
+        }
+      }
+      console.log(`devAddObjects: added ${n} objects (radius=${Math.round(radius)})`);
     };
 
     const userId = user?.id || (user as Record<string, unknown>)?.sub;
@@ -563,5 +612,6 @@ export const boardView = {
     cursorManager = null;
     boardManager = null;
     window.__collabboardDebug = null;
+    window.devAddObjects = null;
   },
 };
