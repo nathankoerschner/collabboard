@@ -5,6 +5,7 @@ import { InputHandler } from './InputHandler.js';
 import { TextEditor } from './TextEditor.js';
 import { ObjectStore } from '../board/ObjectStore.js';
 import { CursorManager } from '../board/CursorManager.js';
+import { SHAPE_DEFS } from '../board/ShapeDefs.js';
 
 const CLIPBOARD_KEY = 'collabboard.clipboard.v1';
 
@@ -198,14 +199,18 @@ export class Canvas {
     }
 
     const shapePreview = this.inputHandler.getShapePreviewRect();
-    if (shapePreview && shapePreview.width > 0 && shapePreview.height > 0) {
-      ctx.save();
-      ctx.strokeStyle = '#2563eb';
-      ctx.lineWidth = 1.5 / this.camera.scale;
-      ctx.setLineDash([6 / this.camera.scale, 4 / this.camera.scale]);
-      ctx.strokeRect(shapePreview.x, shapePreview.y, shapePreview.width, shapePreview.height);
-      ctx.setLineDash([]);
-      ctx.restore();
+    const previewKind = this.inputHandler.activeShapeKind;
+    if (shapePreview && shapePreview.width > 0 && shapePreview.height > 0 && previewKind) {
+      const def = SHAPE_DEFS.get(previewKind);
+      if (def) {
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = this.renderer._color('blue', '#bfdbfe');
+        ctx.strokeStyle = this.renderer._color('gray', '#64748b');
+        ctx.lineWidth = 2;
+        def.draw(ctx, shapePreview.x, shapePreview.y, shapePreview.width, shapePreview.height);
+        ctx.restore();
+      }
     }
 
     const marqueeRect = this.inputHandler.getMarqueeRect();
