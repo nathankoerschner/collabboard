@@ -11,6 +11,14 @@ import {
 import { Camera } from './Camera.js';
 import { SHAPE_DEFS } from '../board/ShapeDefs.js';
 
+const ROTATION_ICON_SIZE = 18;
+const _rotationIcon: HTMLImageElement = (() => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${ROTATION_ICON_SIZE}" height="${ROTATION_ICON_SIZE}" viewBox="0 0 24 24" fill="none" stroke="%232563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><polyline points="21 3 21 8 16 8"/></svg>`;
+  const img = new Image();
+  img.src = `data:image/svg+xml,${svg}`;
+  return img;
+})();
+
 export class Renderer {
   palette: Palette;
 
@@ -148,7 +156,7 @@ export class Renderer {
     this._drawRotatedBox(ctx, obj, (lx, ly, w, _h) => {
       const size = this._textSizePx(text.style?.size || 'medium');
       const font = `${text.style?.italic ? 'italic ' : ''}${text.style?.bold ? '700 ' : '400 '}${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      this._drawWrappedText(ctx, text.content || '', lx + 6, ly + 6, Math.max(20, w - 12), size * 1.3, font, this._color(text.color, '#334155'));
+      this._drawWrappedText(ctx, text.content || '', lx + 6, ly + 6, Math.max(20, w - 12), size * 1.3, font, this._color(text.color, '#000000'));
     });
   }
 
@@ -258,16 +266,7 @@ export class Renderer {
     ctx.setLineDash([]);
 
     const rh = getRotationHandlePoint(bounds);
-    ctx.beginPath();
-    ctx.arc(rh.x, rh.y, 6 / camera.scale, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(bounds.x + bounds.width / 2, bounds.y);
-    ctx.lineTo(rh.x, rh.y + 6 / camera.scale);
-    ctx.stroke();
+    this._drawRotationIcon(ctx, rh.x, rh.y, camera.scale);
 
     ctx.restore();
   }
@@ -315,16 +314,7 @@ export class Renderer {
     ctx.setLineDash([]);
 
     const rotHandle = getRotationHandlePoint(box);
-    ctx.beginPath();
-    ctx.arc(rotHandle.x, rotHandle.y, 6 / camera.scale, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(box.x + box.width / 2, box.y);
-    ctx.lineTo(rotHandle.x, rotHandle.y + 6 / camera.scale);
-    ctx.stroke();
+    this._drawRotationIcon(ctx, rotHandle.x, rotHandle.y, camera.scale);
 
     const ports = getPortList(obj);
     for (const p of ports) {
@@ -477,6 +467,25 @@ export class Renderer {
     ctx.rotate(((obj.rotation || 0) * Math.PI) / 180);
     drawFn(-obj.width / 2, -obj.height / 2, obj.width, obj.height);
     ctx.restore();
+  }
+
+  _drawRotationIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, scale: number): void {
+    const displaySize = ROTATION_ICON_SIZE / scale;
+    const r = displaySize / 2;
+
+    // White circle background
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 1 / scale, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 1.5 / scale;
+    ctx.stroke();
+
+    // Draw the SVG icon image centered on (cx, cy)
+    if (_rotationIcon.complete) {
+      ctx.drawImage(_rotationIcon, cx - r, cy - r, displaySize, displaySize);
+    }
   }
 
   _color(nameOrHex: string | undefined, fallback: string): string {

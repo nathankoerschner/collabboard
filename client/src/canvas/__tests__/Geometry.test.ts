@@ -530,10 +530,10 @@ describe('getFrameHitArea', () => {
 });
 
 describe('getRotationHandlePoint', () => {
-  test('centered horizontally and offset above', () => {
+  test('centered vertically and offset to the left', () => {
     const bounds = { x: 100, y: 200, width: 60, height: 40 };
     const p = getRotationHandlePoint(bounds);
-    expect(p.x).toBe(130); // 100 + 60/2
-    expect(p.y).toBe(200 - ROTATION_HANDLE_OFFSET);
+    expect(p.x).toBe(100 - ROTATION_HANDLE_OFFSET);
+    expect(p.y).toBe(220); // 200 + 40/2
   });
 });

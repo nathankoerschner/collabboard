@@ -273,7 +273,7 @@ export function getFrameHitArea(px: number, py: number, frame: BoardObject): str
 
 export function getRotationHandlePoint(bounds: Bounds): Point {
   return {
-    x: bounds.x + bounds.width / 2,
-    y: bounds.y - ROTATION_HANDLE_OFFSET,
+    x: bounds.x - ROTATION_HANDLE_OFFSET,
+    y: bounds.y + bounds.height / 2,
   };
 }
