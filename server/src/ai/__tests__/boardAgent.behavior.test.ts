@@ -16,7 +16,7 @@ vi.mock('y-websocket/bin/utils', () => ({
 
 vi.mock('../observability.js', () => ({
   startAITrace: vi.fn(async () => ({ enabled: false })),
-  withCollapsedLangChainTracing: vi.fn(async (fn: () => Promise<unknown>) => fn()),
+  getTraceCallbacks: vi.fn(async () => undefined),
   recordLLMGeneration: vi.fn(async () => null),
   recordToolCall: vi.fn(async () => null),
   recordAIError: vi.fn(async () => null),
