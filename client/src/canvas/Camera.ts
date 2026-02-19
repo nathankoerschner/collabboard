@@ -37,4 +37,35 @@ export class Camera {
     this.offsetY = cy - (cy - this.offsetY) * actualFactor;
     this.scale = newScale;
   }
+
+  private _animId: number | null = null;
+
+  animateToScale(target: number, cx: number, cy: number, duration = 250): void {
+    if (this._animId !== null) cancelAnimationFrame(this._animId);
+
+    const startScale = this.scale;
+    const startOffsetX = this.offsetX;
+    const startOffsetY = this.offsetY;
+    const startTime = performance.now();
+
+    const step = (now: number) => {
+      const t = Math.min((now - startTime) / duration, 1);
+      // ease-out cubic
+      const ease = 1 - Math.pow(1 - t, 3);
+
+      const newScale = startScale + (target - startScale) * ease;
+      const factor = newScale / startScale;
+      this.offsetX = cx - (cx - startOffsetX) * factor;
+      this.offsetY = cy - (cy - startOffsetY) * factor;
+      this.scale = newScale;
+
+      if (t < 1) {
+        this._animId = requestAnimationFrame(step);
+      } else {
+        this._animId = null;
+      }
+    };
+
+    this._animId = requestAnimationFrame(step);
+  }
 }

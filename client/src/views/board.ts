@@ -454,6 +454,15 @@ export const boardView = {
     });
 
     const zoomIndicator = document.getElementById('zoom-indicator')!;
+    zoomIndicator.style.cursor = 'pointer';
+    zoomIndicator.title = 'Reset to 100%';
+    zoomIndicator.addEventListener('click', () => {
+      if (canvas?.camera && canvas.camera.scale !== 1) {
+        const cx = canvas.canvasEl.width / (2 * devicePixelRatio);
+        const cy = canvas.canvasEl.height / (2 * devicePixelRatio);
+        canvas.camera.animateToScale(1, cx, cy);
+      }
+    });
     zoomInterval = setInterval(() => {
       if (canvas?.camera) {
         zoomIndicator.textContent = `${Math.round(canvas.camera.scale * 100)}%`;
