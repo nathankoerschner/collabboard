@@ -33,3 +33,14 @@ npm run dev
 ```
 
 This starts both the client (Vite) and server concurrently.
+
+## LangSmith Tracing
+
+Set these server env vars to trace AI requests and tool-calling runs:
+
+- `LANGSMITH_TRACING=true`
+- `LANGSMITH_API_KEY=<your key>`
+- `LANGSMITH_PROJECT=collabboard-ai` (or your project name)
+- `LANGSMITH_ENDPOINT=https://api.smith.langchain.com` (default hosted endpoint)
+- `LANGSMITH_REDACT_PROMPT=true` to hide user prompts in trace inputs
+- `LANGSMITH_COLLAPSE_RUNS=false` to emit detailed nested LLM/tool runs via callbacks

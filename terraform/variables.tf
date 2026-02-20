@@ -33,3 +33,39 @@ variable "openai_api_key" {
   sensitive   = true
 }
 
+variable "langsmith_api_key" {
+  description = "LangSmith API key for tracing"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "langsmith_tracing" {
+  description = "Enable LangSmith tracing"
+  type        = bool
+  default     = true
+}
+
+variable "langsmith_endpoint" {
+  description = "LangSmith API endpoint"
+  type        = string
+  default     = "https://api.smith.langchain.com"
+}
+
+variable "langsmith_project" {
+  description = "LangSmith project name"
+  type        = string
+  default     = "collabboard-ai"
+}
+
+variable "langsmith_redact_prompt" {
+  description = "Redact user prompt content in traces"
+  type        = bool
+  default     = true
+}
+
+variable "langsmith_collapse_runs" {
+  description = "Collapse nested runs instead of callback-level traces"
+  type        = bool
+  default     = false
+}

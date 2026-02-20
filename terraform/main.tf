@@ -206,6 +206,21 @@ resource "google_secret_manager_secret_version" "openai_api_key" {
   secret_data = var.openai_api_key
 }
 
+resource "google_secret_manager_secret" "langsmith_api_key" {
+  secret_id = "collabboard-langsmith-api-key"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_version" "langsmith_api_key" {
+  secret      = google_secret_manager_secret.langsmith_api_key.id
+  secret_data = var.langsmith_api_key
+}
+
 # ---------------------------------------------------------------------------
 # Cloud Run service account + IAM
 # ---------------------------------------------------------------------------
@@ -232,6 +247,12 @@ resource "google_secret_manager_secret_iam_member" "openai_api_key_access" {
   member    = "serviceAccount:${google_service_account.cloud_run.email}"
 }
 
+resource "google_secret_manager_secret_iam_member" "langsmith_api_key_access" {
+  secret_id = google_secret_manager_secret.langsmith_api_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.cloud_run.email}"
+}
+
 resource "google_project_iam_member" "cloud_run_sql" {
   project = var.project_id
   role    = "roles/cloudsql.client"
@@ -242,7 +263,7 @@ resource "google_project_iam_member" "cloud_run_sql" {
 # Cloud Run service
 # ---------------------------------------------------------------------------
 locals {
-  image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.collabboard.repository_id}/app:latest"
+  image        = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.collabboard.repository_id}/app:latest"
   database_url = "postgresql://${google_sql_user.collabboard.name}:${random_password.db_password.result}@${google_sql_database_instance.postgres.private_ip_address}:5432/${google_sql_database.collabboard.name}"
 }
 
@@ -308,6 +329,41 @@ resource "google_cloud_run_v2_service" "collabboard" {
         }
       }
 
+      env {
+        name = "LANGSMITH_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.langsmith_api_key.secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name  = "LANGSMITH_TRACING"
+        value = tostring(var.langsmith_tracing)
+      }
+
+      env {
+        name  = "LANGSMITH_ENDPOINT"
+        value = var.langsmith_endpoint
+      }
+
+      env {
+        name  = "LANGSMITH_PROJECT"
+        value = var.langsmith_project
+      }
+
+      env {
+        name  = "LANGSMITH_REDACT_PROMPT"
+        value = tostring(var.langsmith_redact_prompt)
+      }
+
+      env {
+        name  = "LANGSMITH_COLLAPSE_RUNS"
+        value = tostring(var.langsmith_collapse_runs)
+      }
+
       startup_probe {
         http_get {
           path = "/api/health"
@@ -335,6 +391,7 @@ resource "google_cloud_run_v2_service" "collabboard" {
     google_secret_manager_secret_iam_member.clerk_secret_access,
     google_secret_manager_secret_iam_member.db_password_access,
     google_secret_manager_secret_iam_member.openai_api_key_access,
+    google_secret_manager_secret_iam_member.langsmith_api_key_access,
   ]
 }
 

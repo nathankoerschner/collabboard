@@ -108,7 +108,7 @@ export async function executeBoardAICommand({ boardId, prompt, viewportCenter, s
     const tools = toLangChainTools(toolRunner);
 
     const LAYOUT_TOOLS = new Set(['createFrame', 'arrangeObjectsInGrid']);
-    const collapseRuns = process.env.LANGSMITH_COLLAPSE_RUNS !== 'false';
+    const collapseRuns = process.env.LANGSMITH_COLLAPSE_RUNS === 'true';
     const traceCallbacks = collapseRuns ? undefined : await getTraceCallbacks(traceCtx);
 
     const messages: BaseMessage[] = [
