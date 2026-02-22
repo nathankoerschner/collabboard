@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid';
 import * as Y from 'yjs';
 import type { AttachResult, BoardObject, ConnectorEndpointPayload, ObjectType, Palette, Point, TextStyle } from '../types.js';
 import {
+  findClosestPort,
   getConnectorEndpoints,
   getObjectAABB,
   getObjectCenter,
@@ -827,6 +828,13 @@ export class ObjectStore {
       const nearX = wx >= aabb.x - snapDist && wx <= aabb.x + aabb.width + snapDist;
       const nearY = wy >= aabb.y - snapDist && wy <= aabb.y + aabb.height + snapDist;
       if (nearX && nearY) {
+        // Tables: snap to nearest row port
+        if (obj.type === 'table') {
+          const port = findClosestPort(obj, wx, wy);
+          if (port) {
+            return { object: obj, t: 0, port: port.name };
+          }
+        }
         const t = nearestPerimeterT(obj, wx, wy);
         return { object: obj, t };
       }

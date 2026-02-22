@@ -121,10 +121,17 @@ export class Canvas {
         const conn = this.objectStore.startConnector(wx, wy);
 
         if (attach) {
-          this.objectStore.updateConnectorEndpoint(conn.id, 'start', {
-            objectId: attach.objectId,
-            t: attach.t,
-          });
+          if ('port' in attach) {
+            this.objectStore.updateConnectorEndpoint(conn.id, 'start', {
+              objectId: attach.objectId,
+              port: attach.port,
+            });
+          } else {
+            this.objectStore.updateConnectorEndpoint(conn.id, 'start', {
+              objectId: attach.objectId,
+              t: attach.t,
+            });
+          }
           this.objectStore.updateConnectorEndpoint(conn.id, 'end', {
             point: { x: wx, y: wy },
           });

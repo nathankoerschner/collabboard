@@ -6,6 +6,8 @@ import { getYDoc } from 'y-websocket/bin/utils';
 import { BoardToolRunner } from './boardTools.js';
 import { normalizeViewportCenter, toLangChainTools } from './schema.js';
 import { finishAITrace, recordAIError, startAITrace, getTraceCallbacks } from './observability.js';
+import { extractGitHubUrl, fetchRepoMetadata, fetchRepoTree } from './github.js';
+import { buildRepoSystemPrompt, runGitHubExplorationPipeline, type GitHubAnalysisMetrics } from './codeAnalyzer.js';
 
 const FAST_MODEL = process.env.OPENAI_FAST_MODEL || 'gpt-4o-mini';
 const POWER_MODEL = process.env.OPENAI_MODEL || 'gpt-5.2';
@@ -23,6 +25,7 @@ function buildSystemPrompt(): string {
     'If selectedObjectIds is provided in the user payload and the request references "selected", operate on those IDs only.',
     'For structured templates (SWOT/retro/kanban/matrix), create one outer frame plus labeled inner section frames and avoid seed content unless asked.',
     'When creating frames, follow the deterministic sizing/spacing rules from the tool descriptions.',
+    'When you need to display text, always use sticky notes (createStickyNote) instead of standalone text objects. Stickies are the primary text vehicle on the board.',
   ].join('\n');
 }
 
@@ -52,6 +55,19 @@ interface AICommandResult {
   errors: string[];
 }
 
+interface DiagramPhaseResult {
+  completed: boolean;
+  modelsUsed: Set<string>;
+}
+
+interface GitHubPhaseResult {
+  ok: boolean;
+  systemPrompt: string;
+  effectivePrompt: string;
+  metrics: GitHubAnalysisMetrics;
+  error?: string;
+}
+
 function normalizeViewportContext(input: unknown): ViewportContext {
   const center = normalizeViewportCenter(input);
   const obj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
@@ -69,13 +85,187 @@ function normalizeViewportContext(input: unknown): ViewportContext {
   return { center, widthPx, heightPx, topLeftWorld, bottomRightWorld, scale };
 }
 
+async function runGitHubAnalysisPhase(prompt: string): Promise<GitHubPhaseResult | null> {
+  const ghMatch = extractGitHubUrl(prompt);
+  if (!ghMatch) return null;
+
+  try {
+    const { parsed, promptWithoutUrl } = ghMatch;
+    const metadata = await fetchRepoMetadata(parsed.owner, parsed.repo);
+    const { tree, branch } = await fetchRepoTree(parsed.owner, parsed.repo, parsed.branch, parsed.path);
+    const repoUrl = `https://github.com/${parsed.owner}/${parsed.repo}`;
+
+    const analysis = await runGitHubExplorationPipeline({
+      promptWithoutUrl,
+      repoUrl,
+      owner: parsed.owner,
+      repo: parsed.repo,
+      branch,
+      scopedPath: parsed.path,
+      metadata,
+      tree,
+    });
+
+    if (!analysis.ok) {
+      return {
+        ok: false,
+        systemPrompt: buildSystemPrompt(),
+        effectivePrompt: promptWithoutUrl || prompt,
+        metrics: analysis.metrics,
+        error: analysis.userMessage,
+      };
+    }
+
+    const fallbackPromptByType: Record<string, string> = {
+      architecture: 'Generate an architecture diagram for this repository.',
+      erd: 'Generate an ERD diagram for this repository.',
+      component: 'Generate a component diagram for this repository.',
+      dependency: 'Generate a dependency diagram for this repository.',
+    };
+
+    return {
+      ok: true,
+      systemPrompt: buildRepoSystemPrompt(analysis.context),
+      effectivePrompt: analysis.promptWithoutUrl || fallbackPromptByType[analysis.context.diagramType] || prompt,
+      metrics: analysis.metrics,
+    };
+  } catch (err: unknown) {
+    const errMsg = (err as Error)?.message || 'Failed to fetch repository';
+    return {
+      ok: false,
+      systemPrompt: buildSystemPrompt(),
+      effectivePrompt: prompt,
+      metrics: {
+        urlDetected: true,
+        diagramType: undefined,
+        repoToolsExposed: true,
+        roundsUsed: 0,
+        filesTouched: 0,
+        bytesFetched: 0,
+        finalRepoContextTokens: 0,
+        fallbackPathTaken: 'none',
+        phaseLatenciesMs: {
+          metadataTree: 0,
+          planning: 0,
+          retrieval: 0,
+        },
+      },
+      error: `GitHub retrieval failed: ${errMsg}`,
+    };
+  }
+}
+
+async function runDiagramExecutionPhase(input: {
+  systemPrompt: string;
+  effectivePrompt: string;
+  viewport: ViewportContext;
+  selectedObjectIds?: string[];
+  boardId: string;
+  userId: string;
+  traceCallbacks: unknown;
+  startWithPowerModel?: boolean;
+}): Promise<{ mutationSummary: {
+  createdIds: string[];
+  updatedIds: string[];
+  deletedIds: string[];
+  toolCalls: Array<{ toolName: string; args: Record<string, unknown>; result: unknown }>;
+}; result: DiagramPhaseResult }> {
+  const yDoc = getYDoc(input.boardId);
+  if (yDoc.whenInitialized) {
+    await yDoc.whenInitialized;
+  }
+
+  const toolRunner = BoardToolRunner.fromYDoc(yDoc, {
+    viewportCenter: input.viewport.center,
+    actorId: `ai:${input.userId || 'anonymous'}`,
+  });
+
+  const tools = toLangChainTools(toolRunner);
+
+  const fastLlm = new ChatOpenAI({
+    model: FAST_MODEL,
+    temperature: 0,
+    openAIApiKey: process.env.OPENAI_API_KEY,
+  });
+  const powerLlm = new ChatOpenAI({
+    model: POWER_MODEL,
+    temperature: 0,
+    openAIApiKey: process.env.OPENAI_API_KEY,
+  });
+
+  const messages: BaseMessage[] = [
+    new SystemMessage(input.systemPrompt),
+    new HumanMessage(JSON.stringify({
+      prompt: input.effectivePrompt,
+      viewportCenter: input.viewport,
+      selectedObjectIds: input.selectedObjectIds || [],
+    })),
+  ];
+
+  const modelsUsed = new Set<string>();
+  const layoutTools = new Set(['createFrame', 'arrangeObjectsInGrid']);
+  let needsPowerModel = Boolean(input.startWithPowerModel);
+  let completed = false;
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const model = needsPowerModel ? POWER_MODEL : FAST_MODEL;
+    const llm = needsPowerModel ? powerLlm : fastLlm;
+    modelsUsed.add(model);
+
+    const response = await llm.bindTools(tools).invoke(messages, {
+      metadata: { model, round },
+      tags: [`model:${model}`, `round:${round}`],
+      runName: `round_${round}_${model}`,
+      callbacks: input.traceCallbacks as any,
+    }) as AIMessage;
+    messages.push(response);
+
+    const toolCalls = response.tool_calls ?? [];
+    if (toolCalls.length === 0) {
+      completed = true;
+      break;
+    }
+
+    if (!needsPowerModel && toolCalls.some((tc) => layoutTools.has(tc.name))) {
+      needsPowerModel = true;
+    }
+
+    for (const toolCall of toolCalls) {
+      const tool = tools.find((t) => t.name === toolCall.name);
+      const result = tool
+        ? await tool.invoke(toolCall.args, {
+          metadata: { model, round, toolName: toolCall.name, toolCallId: toolCall.id },
+          tags: [`model:${model}`, `round:${round}`, `tool:${toolCall.name}`],
+          runName: `tool_${toolCall.name}`,
+          callbacks: input.traceCallbacks as any,
+        })
+        : JSON.stringify({ error: `Unknown tool: ${toolCall.name}` });
+      messages.push(new ToolMessage({
+        content: typeof result === 'string' ? result : JSON.stringify(result),
+        tool_call_id: toolCall.id!,
+        name: toolCall.name,
+      }));
+    }
+  }
+
+  return {
+    mutationSummary: toolRunner.applyToDoc(),
+    result: {
+      completed,
+      modelsUsed,
+    },
+  };
+}
+
 export async function executeBoardAICommand({ boardId, prompt, viewportCenter, selectedObjectIds, userId }: AICommandInput): Promise<AICommandResult> {
   const startedAt = Date.now();
   const viewport = normalizeViewportContext(viewportCenter);
   const traceCtx = await startAITrace({ boardId, userId, prompt, viewportCenter: viewport });
+
   const errors: string[] = [];
   let completed = false;
   const modelsUsed = new Set<string>();
+  let githubAnalysis: GitHubAnalysisMetrics | undefined;
   let mutationSummary = {
     createdIds: [] as string[],
     updatedIds: [] as string[],
@@ -84,90 +274,62 @@ export async function executeBoardAICommand({ boardId, prompt, viewportCenter, s
   };
 
   try {
-    const yDoc = getYDoc(boardId);
-    if (yDoc.whenInitialized) {
-      await yDoc.whenInitialized;
-    }
-
-    const toolRunner = BoardToolRunner.fromYDoc(yDoc, {
-      viewportCenter: viewport.center,
-      actorId: `ai:${userId || 'anonymous'}`,
-    });
-
-    const fastLlm = new ChatOpenAI({
-      model: FAST_MODEL,
-      temperature: 0,
-      openAIApiKey: process.env.OPENAI_API_KEY,
-    });
-    const powerLlm = new ChatOpenAI({
-      model: POWER_MODEL,
-      temperature: 0,
-      openAIApiKey: process.env.OPENAI_API_KEY,
-    });
-
-    const tools = toLangChainTools(toolRunner);
-
-    const LAYOUT_TOOLS = new Set(['createFrame', 'arrangeObjectsInGrid']);
     const collapseRuns = process.env.LANGSMITH_COLLAPSE_RUNS === 'true';
     const traceCallbacks = collapseRuns ? undefined : await getTraceCallbacks(traceCtx);
 
-    const messages: BaseMessage[] = [
-      new SystemMessage(buildSystemPrompt()),
-      new HumanMessage(JSON.stringify({
-        prompt,
-        viewportCenter: viewport,
-        selectedObjectIds: selectedObjectIds || [],
-      })),
-    ];
+    let systemPrompt = buildSystemPrompt();
+    let effectivePrompt = prompt;
 
-    let needsPowerModel = false;
-
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const model = needsPowerModel ? POWER_MODEL : FAST_MODEL;
-      const llm = needsPowerModel ? powerLlm : fastLlm;
-      modelsUsed.add(model);
-
-      const response = await llm.bindTools(tools).invoke(messages, {
-        metadata: { model, round },
-        tags: [`model:${model}`, `round:${round}`],
-        runName: `round_${round}_${model}`,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        callbacks: traceCallbacks as any,
-      }) as AIMessage;
-      messages.push(response);
-
-      const toolCalls = response.tool_calls ?? [];
-
-      if (toolCalls.length === 0) {
-        completed = true;
-        break;
+    const githubPhase = await runGitHubAnalysisPhase(prompt);
+    if (githubPhase) {
+      githubAnalysis = githubPhase.metrics;
+      if (!githubPhase.ok) {
+        errors.push(githubPhase.error || 'GitHub analysis failed');
+        return {
+          createdIds: [],
+          updatedIds: [],
+          deletedIds: [],
+          durationMs: Date.now() - startedAt,
+          completed: false,
+          errors,
+        };
       }
-
-      // Escalate to power model if layout tools are invoked
-      if (!needsPowerModel && toolCalls.some((tc) => LAYOUT_TOOLS.has(tc.name))) {
-        needsPowerModel = true;
-      }
-
-      for (const toolCall of toolCalls) {
-        const tool = tools.find((t) => t.name === toolCall.name);
-        const result = tool
-          ? await tool.invoke(toolCall.args, {
-            metadata: { model, round, toolName: toolCall.name, toolCallId: toolCall.id },
-            tags: [`model:${model}`, `round:${round}`, `tool:${toolCall.name}`],
-            runName: `tool_${toolCall.name}`,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            callbacks: traceCallbacks as any,
-          })
-          : JSON.stringify({ error: `Unknown tool: ${toolCall.name}` });
-        messages.push(new ToolMessage({
-          content: typeof result === 'string' ? result : JSON.stringify(result),
-          tool_call_id: toolCall.id!,
-          name: toolCall.name,
-        }));
-      }
+      systemPrompt = githubPhase.systemPrompt;
+      effectivePrompt = githubPhase.effectivePrompt;
+    } else {
+      githubAnalysis = {
+        urlDetected: false,
+        diagramType: undefined,
+        repoToolsExposed: false,
+        roundsUsed: 0,
+        filesTouched: 0,
+        bytesFetched: 0,
+        finalRepoContextTokens: 0,
+        fallbackPathTaken: 'none',
+        phaseLatenciesMs: {
+          metadataTree: 0,
+          planning: 0,
+          retrieval: 0,
+        },
+      };
     }
 
-    mutationSummary = toolRunner.applyToDoc();
+    const diagramPhase = await runDiagramExecutionPhase({
+      systemPrompt,
+      effectivePrompt,
+      viewport,
+      selectedObjectIds,
+      boardId,
+      userId,
+      traceCallbacks,
+      startWithPowerModel: Boolean(githubPhase),
+    });
+
+    mutationSummary = diagramPhase.mutationSummary;
+    completed = diagramPhase.result.completed;
+    for (const model of diagramPhase.result.modelsUsed) {
+      modelsUsed.add(model);
+    }
   } catch (err: unknown) {
     const message = (err as Error)?.message || 'Unknown AI execution error';
     errors.push(message);
@@ -193,6 +355,7 @@ export async function executeBoardAICommand({ boardId, prompt, viewportCenter, s
       durationMs,
       completed,
       modelsUsed: [...modelsUsed],
+      githubAnalysis,
     });
   }
 

@@ -143,6 +143,21 @@ export async function finishAITrace(traceCtx: TraceContext, payload: {
   durationMs: number;
   completed: boolean;
   modelsUsed?: string[];
+  githubAnalysis?: {
+    urlDetected: boolean;
+    diagramType?: string;
+    repoToolsExposed: boolean;
+    roundsUsed: number;
+    filesTouched: number;
+    bytesFetched: number;
+    finalRepoContextTokens: number;
+    fallbackPathTaken: string;
+    phaseLatenciesMs: {
+      metadataTree: number;
+      planning: number;
+      retrieval: number;
+    };
+  };
 }): Promise<void> {
   if (!traceCtx.enabled || !traceCtx.rootRunId) return;
 
@@ -157,6 +172,7 @@ export async function finishAITrace(traceCtx: TraceContext, payload: {
         durationMs: payload.durationMs,
         modelsUsed: payload.modelsUsed || [],
         toolCallCount: payload.toolCalls.length,
+        githubAnalysis: payload.githubAnalysis || null,
       },
       end_time: Date.now(),
       extra: {
@@ -165,6 +181,7 @@ export async function finishAITrace(traceCtx: TraceContext, payload: {
             completed: payload.completed,
             durationMs: payload.durationMs,
             errorCount: payload.errors.length,
+            githubAnalysis: payload.githubAnalysis || null,
           },
         },
       },

@@ -7,7 +7,6 @@ export const AI_TOOL_NAMES = [
   'createShape',
   'createFrame',
   'createConnector',
-  'createText',
   'createTable',
   'moveObject',
   'arrangeObjectsInGrid',
@@ -132,6 +131,7 @@ const toolPostProcess: Record<string, (a: Record<string, unknown>) => Record<str
       color: typeof a.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(a.color) ? a.color : '#e2e8f0',
     };
   },
+  // createText kept for internal use (not exposed to AI)
   createText: (a) => ({
     content: clampText(a.content ?? '', 4000, ''),
     x: coordOrNull(a.x), y: coordOrNull(a.y),
@@ -188,7 +188,7 @@ const paletteEnum = z.enum([...PALETTE_NAMES] as [string, ...string[]]);
 
 export const langChainSchemas: Record<string, { description: string; schema: z.ZodObject<z.ZodRawShape> }> = {
   createStickyNote: {
-    description: 'Create a sticky note. Default size is 150x150. Omit x/y to place near viewport center. When placing inside a frame, set x/y within the frame bounds so it becomes a child of that frame.',
+    description: 'Create a sticky note. This is the primary way to add text to the board. Default size is 150x150. Omit x/y to place near viewport center. When placing inside a frame, set x/y within the frame bounds so it becomes a child of that frame.',
     schema: z.object({
       text: z.string().describe('Sticky note text'),
       x: z.number().nullish().describe('X coordinate'),
@@ -229,20 +229,6 @@ export const langChainSchemas: Record<string, { description: string; schema: z.Z
       fromT: z.number().min(0).max(1).optional().describe('Perimeter position 0-1 on source object'),
       toT: z.number().min(0).max(1).optional().describe('Perimeter position 0-1 on target object'),
       style: z.enum([...CONNECTOR_STYLES] as [string, ...string[]]).optional().describe('Connector style'),
-    }),
-  },
-  createText: {
-    description: 'Create a text object. Default size is 220x60.',
-    schema: z.object({
-      content: z.string().describe('Text content'),
-      x: z.number().nullish().describe('X coordinate'),
-      y: z.number().nullish().describe('Y coordinate'),
-      width: z.number().nullish().describe('Width'),
-      height: z.number().nullish().describe('Height'),
-      fontSize: z.enum([...TEXT_SIZES] as [string, ...string[]]).optional().describe('Font size'),
-      bold: z.boolean().optional().describe('Bold'),
-      italic: z.boolean().optional().describe('Italic'),
-      color: paletteEnum.optional().describe('Color'),
     }),
   },
   createTable: {

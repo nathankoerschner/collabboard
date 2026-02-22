@@ -1,4 +1,4 @@
-import type { BoardObject, Bounds, Point, Port, ShapeObject } from '../types.js';
+import type { BoardObject, Bounds, Point, Port, ShapeObject, TableObject } from '../types.js';
 import { SHAPE_DEFS } from '../board/ShapeDefs.js';
 
 export const ROTATION_HANDLE_OFFSET = 28;
@@ -191,6 +191,11 @@ export function getPortList(obj: BoardObject): Port[] {
     }
   }
 
+  // Table objects: generate per-row ports on left and right sides
+  if (obj.type === 'table') {
+    return getTableRowPorts(obj as TableObject);
+  }
+
   const x = obj.x;
   const y = obj.y;
   const w = obj.width;
@@ -212,6 +217,30 @@ export function getPortList(obj: BoardObject): Port[] {
     const p = a ? rotatePoint(px, py, c.x, c.y, a) : { x: px, y: py };
     return { name, x: p.x, y: p.y };
   });
+}
+
+/** Generate connector ports on left and right side of each table row. */
+export function getTableRowPorts(table: TableObject): Port[] {
+  const TITLE_HEIGHT = 28;
+  const rows = table.rows || [];
+  const rowHeights = table.rowHeights || {};
+  const x = table.x;
+  const w = table.width;
+  const c = getObjectCenter(table);
+  const a = table.rotation || 0;
+
+  const ports: Port[] = [];
+  let rowY = table.y + TITLE_HEIGHT;
+  for (const rowId of rows) {
+    const rh = rowHeights[rowId] || 32;
+    const centerY = rowY + rh / 2;
+    const leftPt = a ? rotatePoint(x, centerY, c.x, c.y, a) : { x, y: centerY };
+    const rightPt = a ? rotatePoint(x + w, centerY, c.x, c.y, a) : { x: x + w, y: centerY };
+    ports.push({ name: `row:${rowId}:w`, x: leftPt.x, y: leftPt.y });
+    ports.push({ name: `row:${rowId}:e`, x: rightPt.x, y: rightPt.y });
+    rowY += rh;
+  }
+  return ports;
 }
 
 export function getPortPosition(obj: BoardObject, portName: string): Point | null {

@@ -1,5 +1,5 @@
-import type { BoardObject, ShapeObject } from '../types.js';
-import { getObjectCenter, getOffscreenCtx, inverseRotatePoint, pointInPath2D } from './Geometry.js';
+import type { BoardObject, ShapeObject, TableObject } from '../types.js';
+import { getObjectCenter, getOffscreenCtx, getTableRowPorts, inverseRotatePoint, pointInPath2D } from './Geometry.js';
 import { Camera } from './Camera.js';
 import { SHAPE_DEFS } from '../board/ShapeDefs.js';
 import type { Renderer } from './Renderer.js';
@@ -54,11 +54,17 @@ export class HitboxRing {
   draw(ctx: CanvasRenderingContext2D, objectsById: Map<string, BoardObject>, camera: Camera, renderer: Renderer): void {
     if (this.hoveredId) {
       const obj = objectsById.get(this.hoveredId);
-      if (obj) this._drawGlow(ctx, obj, camera, renderer);
+      if (obj) {
+        this._drawGlow(ctx, obj, camera, renderer);
+        if (obj.type === 'table') this._drawTableRowPorts(ctx, obj as TableObject, camera);
+      }
     }
     if (this.dragTargetId && this.dragTargetId !== this.hoveredId) {
       const obj = objectsById.get(this.dragTargetId);
-      if (obj) this._drawGlow(ctx, obj, camera, renderer);
+      if (obj) {
+        this._drawGlow(ctx, obj, camera, renderer);
+        if (obj.type === 'table') this._drawTableRowPorts(ctx, obj as TableObject, camera);
+      }
     }
   }
 
@@ -67,7 +73,7 @@ export class HitboxRing {
   private _hitTestTopmost(wx: number, wy: number, objects: BoardObject[], scale: number): BoardObject | null {
     for (let i = objects.length - 1; i >= 0; i--) {
       const obj = objects[i]!;
-      if (obj.type === 'connector' || obj.type === 'frame' || obj.type === 'text' || obj.type === 'table') continue;
+      if (obj.type === 'connector' || obj.type === 'frame' || obj.type === 'text') continue;
       if (_hitTestOuterRing(wx, wy, obj, RING_PX, scale)) return obj;
     }
     return null;
@@ -99,12 +105,29 @@ export class HitboxRing {
           ctx.stroke(p);
         }
       } else {
-        const r = obj.type === 'sticky' ? 6 : 8;
+        const r = obj.type === 'sticky' || obj.type === 'table' ? 6 : 8;
         renderer.roundRect(ctx, lx - halfRing, ly - halfRing, w + ring, h + ring, r + halfRing);
         ctx.stroke();
       }
     });
 
+    ctx.restore();
+  }
+
+  private _drawTableRowPorts(ctx: CanvasRenderingContext2D, table: TableObject, camera: Camera): void {
+    const ports = getTableRowPorts(table);
+    const radius = 5 / camera.scale;
+
+    ctx.save();
+    for (const port of ports) {
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 1.5 / camera.scale;
+      ctx.beginPath();
+      ctx.arc(port.x, port.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
     ctx.restore();
   }
 }

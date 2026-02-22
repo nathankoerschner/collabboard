@@ -6,7 +6,7 @@ import {
   hitTestRotationHandle,
   selectionPadding,
 } from './HitTest.js';
-import { getConnectorEndpoints, getObjectAABB, getSelectionBounds, nearestPerimeterT, pointInObject } from './Geometry.js';
+import { findClosestPort, getConnectorEndpoints, getObjectAABB, getSelectionBounds, nearestPerimeterT, pointInObject } from './Geometry.js';
 import { Camera } from './Camera.js';
 import { HitboxRing } from './HitboxRing.js';
 import type { Renderer } from './Renderer.js';
@@ -138,8 +138,14 @@ export class InputHandler {
       const objects = this.getObjects();
       const hoveredObj = this.hitboxRing.getHoveredObject(objects);
       if (hoveredObj) {
-        const t = nearestPerimeterT(hoveredObj, wx, wy);
-        const conn = this.callbacks.onStartConnector?.(wx, wy, { objectId: hoveredObj.id, t });
+        let attach: { objectId: string; t: number } | { objectId: string; port: string };
+        if (hoveredObj.type === 'table') {
+          const port = findClosestPort(hoveredObj, wx, wy);
+          attach = port ? { objectId: hoveredObj.id, port: port.name } : { objectId: hoveredObj.id, t: nearestPerimeterT(hoveredObj, wx, wy) };
+        } else {
+          attach = { objectId: hoveredObj.id, t: nearestPerimeterT(hoveredObj, wx, wy) };
+        }
+        const conn = this.callbacks.onStartConnector?.(wx, wy, attach);
         if (conn) {
           this.activeConnectorId = conn.id;
           this.connectorSourceObjectId = hoveredObj.id;
@@ -308,16 +314,26 @@ export class InputHandler {
     }
 
     if (this.dragType === 'connector-end' && this.activeConnectorId) {
-      // Update fromT only when cursor is crossing over the source object
+      // Update fromT/fromPort only when cursor is crossing over the source object
       if (this.connectorSourceObjectId) {
         const objects = this.getObjects();
         const srcObj = objects.find((o) => o.id === this.connectorSourceObjectId);
         if (srcObj && (pointInObject(wx, wy, srcObj) || this.hitboxRing.isInRing(wx, wy, srcObj, this.camera.scale))) {
-          const fromT = nearestPerimeterT(srcObj, wx, wy);
-          this.callbacks.onConnectorEndpoint?.(this.activeConnectorId, 'start', {
-            objectId: srcObj.id,
-            t: fromT,
-          });
+          if (srcObj.type === 'table') {
+            const port = findClosestPort(srcObj, wx, wy);
+            if (port) {
+              this.callbacks.onConnectorEndpoint?.(this.activeConnectorId, 'start', {
+                objectId: srcObj.id,
+                port: port.name,
+              });
+            }
+          } else {
+            const fromT = nearestPerimeterT(srcObj, wx, wy);
+            this.callbacks.onConnectorEndpoint?.(this.activeConnectorId, 'start', {
+              objectId: srcObj.id,
+              t: fromT,
+            });
+          }
         }
       }
 
@@ -325,10 +341,17 @@ export class InputHandler {
       const attach = this.callbacks.onResolveAttach?.(wx, wy, this.activeConnectorId, this.connectorSourceObjectId);
       if (attach) {
         this.hitboxRing.setDragTarget(attach.object.id);
-        this.callbacks.onConnectorEndpoint?.(this.activeConnectorId, 'end', {
-          objectId: attach.object.id,
-          t: attach.t,
-        });
+        if (attach.port) {
+          this.callbacks.onConnectorEndpoint?.(this.activeConnectorId, 'end', {
+            objectId: attach.object.id,
+            port: attach.port,
+          });
+        } else {
+          this.callbacks.onConnectorEndpoint?.(this.activeConnectorId, 'end', {
+            objectId: attach.object.id,
+            t: attach.t,
+          });
+        }
       } else {
         this.hitboxRing.setDragTarget(null);
         this.callbacks.onConnectorEndpoint?.(this.activeConnectorId, 'end', {

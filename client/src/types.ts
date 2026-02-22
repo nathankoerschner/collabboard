@@ -185,6 +185,7 @@ export type ConnectorEndpointPayload = ConnectorAttachPayload | ConnectorTAttach
 export interface AttachResult {
   object: BoardObject;
   t: number;
+  port?: string;
 }
 
 // ── Callback Interfaces ──
@@ -208,7 +209,7 @@ export interface InputHandlerCallbacks {
   onEditObject?: (id: string) => void;
   onBringToFront?: (id: string) => void;
   onCursorMove?: (wx: number, wy: number) => void;
-  onStartConnector?: (wx: number, wy: number, attach?: { objectId: string; t: number }) => BoardObject | undefined;
+  onStartConnector?: (wx: number, wy: number, attach?: { objectId: string; t: number } | { objectId: string; port: string }) => BoardObject | undefined;
   onResolveAttach?: (wx: number, wy: number, connectorId: string, excludeSourceId?: string | null) => AttachResult | null;
   onConnectorEndpoint?: (id: string, side: string, payload: ConnectorEndpointPayload) => void;
   onFinishConnector?: (id: string) => void;
