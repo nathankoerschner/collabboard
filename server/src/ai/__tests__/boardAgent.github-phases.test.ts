@@ -53,10 +53,14 @@ vi.mock('../github.js', () => ({
   fetchRepoTree: fetchRepoTreeMock,
 }));
 
-vi.mock('../codeAnalyzer.js', () => ({
-  runGitHubExplorationPipeline: runGitHubExplorationPipelineMock,
-  buildRepoSystemPrompt: buildRepoSystemPromptMock,
-}));
+vi.mock('../codeAnalyzer.js', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return {
+    ...actual,
+    runGitHubExplorationPipeline: runGitHubExplorationPipelineMock,
+    buildRepoSystemPrompt: buildRepoSystemPromptMock,
+  };
+});
 
 describe('boardAgent github phase gating', () => {
   beforeEach(() => {

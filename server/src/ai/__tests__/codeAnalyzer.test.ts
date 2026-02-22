@@ -84,7 +84,7 @@ describe('codeAnalyzer pipeline', () => {
 
     const state = {
       round: 1,
-      evidence: [],
+      scannedContents: [],
       touchedFiles: new Set<string>(),
       bytesFetched: 0,
       knownGaps: [],
@@ -104,16 +104,16 @@ describe('codeAnalyzer pipeline', () => {
     expect(round.hardCapError).toContain('byte budget exceeded');
   });
 
-  test('buildRepoContextFromEvidence records confidence and gaps', async () => {
-    const { buildRepoContextFromEvidence } = await loadAnalyzer();
+  test('buildRepoContextFromScannedContents records confidence and gaps', async () => {
+    const { buildRepoContextFromScannedContents } = await loadAnalyzer();
 
-    const context = buildRepoContextFromEvidence({
+    const context = buildRepoContextFromScannedContents({
       repoUrl: 'https://github.com/acme/app',
       diagramType: 'architecture',
       description: 'demo app',
       language: 'TypeScript',
       shallowTree: 'src/',
-      evidence: [
+      scannedContents: [
         {
           path: 'src/index.ts',
           snippet: 'export const app = {}',
@@ -126,6 +126,6 @@ describe('codeAnalyzer pipeline', () => {
 
     expect(context.confidence).toBe('low');
     expect(context.knownGaps).toEqual(['missing env config']);
-    expect(context.evidence).toHaveLength(1);
+    expect(context.scannedContents).toHaveLength(1);
   });
 });

@@ -38,7 +38,7 @@ export interface RepoExplorationPlan {
   maxBytes: number;
 }
 
-export interface EvidenceItem {
+export interface ScannedContent {
   path: string;
   snippet: string;
   reason: string;
@@ -50,7 +50,7 @@ export interface RepoContextForDiagram {
   diagramType: DiagramType;
   summary: string;
   keyFindings: string[];
-  evidence: EvidenceItem[];
+  scannedContents: ScannedContent[];
   confidence: 'high' | 'medium' | 'low';
   knownGaps: string[];
 }
@@ -108,7 +108,7 @@ interface PipelineInput {
 
 interface RetrievalState {
   round: number;
-  evidence: EvidenceItem[];
+  scannedContents: ScannedContent[];
   touchedFiles: Set<string>;
   bytesFetched: number;
   knownGaps: string[];
@@ -121,7 +121,7 @@ const DEFAULT_MAX_BYTES = Number(process.env.GITHUB_ANALYSIS_MAX_BYTES) || 520 *
 const DEFAULT_MAX_CONTEXT_TOKENS = Number(process.env.GITHUB_ANALYSIS_MAX_CONTEXT_TOKENS) || 14_000;
 
 const FALLBACK_MAX_FILES = 10;
-const MAX_EVIDENCE_ITEMS = 40;
+const MAX_SCANNED_ITEMS = 40;
 
 /** Rough token estimate: ~4 chars per token */
 function estimateTokens(text: string): number {
@@ -147,7 +147,7 @@ function summarizeTreeStats(tree: FileTreeNode[]): Record<string, number> {
   return counts;
 }
 
-function confidenceFromEvidence(evidenceCount: number, gaps: number): 'high' | 'medium' | 'low' {
+function confidenceFromScannedContents(evidenceCount: number, gaps: number): 'high' | 'medium' | 'low' {
   if (evidenceCount >= 10 && gaps === 0) return 'high';
   if (evidenceCount >= 5) return 'medium';
   return 'low';
@@ -359,9 +359,9 @@ function cappedSnippet(text: string, max = 2200): string {
   return `${text.slice(0, max)}\n... (truncated)`;
 }
 
-function dedupeEvidence(items: EvidenceItem[]): EvidenceItem[] {
+function dedupeScannedContents(items: ScannedContent[]): ScannedContent[] {
   const seen = new Set<string>();
-  const out: EvidenceItem[] = [];
+  const out: ScannedContent[] = [];
 
   for (const item of items) {
     const key = `${item.source}:${item.path}:${item.snippet.slice(0, 80)}`;
@@ -370,11 +370,11 @@ function dedupeEvidence(items: EvidenceItem[]): EvidenceItem[] {
     out.push(item);
   }
 
-  return out.slice(0, MAX_EVIDENCE_ITEMS);
+  return out.slice(0, MAX_SCANNED_ITEMS);
 }
 
 function queueRefinementOperations(plan: RepoExplorationPlan, state: RetrievalState): ExplorationOperation[] {
-  if (state.evidence.length >= 8) return [];
+  if (state.scannedContents.length >= 8) return [];
 
   const uncoveredCandidates = plan.candidates
     .map((candidate) => candidate.path)
@@ -406,9 +406,9 @@ export async function executeExplorationRound(
   input: PipelineInput,
   plan: RepoExplorationPlan,
   state: RetrievalState,
-): Promise<{ addedEvidence: EvidenceItem[]; nextOperations: ExplorationOperation[]; completed: boolean; hardCapError: string | null }> {
+): Promise<{ addedContents: ScannedContent[]; nextOperations: ExplorationOperation[]; completed: boolean; hardCapError: string | null }> {
   const allowedPaths = asUniquePaths(input.tree);
-  const addedEvidence: EvidenceItem[] = [];
+  const addedContents: ScannedContent[] = [];
   const remainingOps = [...state.pendingOperations];
 
   while (remainingOps.length > 0) {
@@ -417,7 +417,7 @@ export async function executeExplorationRound(
     if (operation.kind === 'head') {
       if (!pathIsAllowed(operation.path, allowedPaths)) continue;
       if (!state.touchedFiles.has(operation.path) && state.touchedFiles.size >= plan.maxFiles) {
-        return { addedEvidence, nextOperations: remainingOps, completed: true, hardCapError: applyHardCaps(plan, state) || `file budget exceeded (${state.touchedFiles.size}/${plan.maxFiles})` };
+        return { addedContents, nextOperations: remainingOps, completed: true, hardCapError: applyHardCaps(plan, state) || `file budget exceeded (${state.touchedFiles.size}/${plan.maxFiles})` };
       }
 
       const snippet = await fetchFileHead(input.owner, input.repo, operation.path, input.branch, operation.maxLines);
@@ -429,7 +429,7 @@ export async function executeExplorationRound(
       const b = bytesOf(snippet);
       state.bytesFetched += b;
       state.touchedFiles.add(operation.path);
-      addedEvidence.push({
+      addedContents.push({
         path: operation.path,
         snippet: cappedSnippet(snippet),
         reason: 'Top-of-file context for architectural intent',
@@ -440,7 +440,7 @@ export async function executeExplorationRound(
     if (operation.kind === 'chunk') {
       if (!pathIsAllowed(operation.path, allowedPaths)) continue;
       if (!state.touchedFiles.has(operation.path) && state.touchedFiles.size >= plan.maxFiles) {
-        return { addedEvidence, nextOperations: remainingOps, completed: true, hardCapError: applyHardCaps(plan, state) || `file budget exceeded (${state.touchedFiles.size}/${plan.maxFiles})` };
+        return { addedContents, nextOperations: remainingOps, completed: true, hardCapError: applyHardCaps(plan, state) || `file budget exceeded (${state.touchedFiles.size}/${plan.maxFiles})` };
       }
 
       const snippet = await fetchFileChunk(
@@ -459,7 +459,7 @@ export async function executeExplorationRound(
       const b = bytesOf(snippet);
       state.bytesFetched += b;
       state.touchedFiles.add(operation.path);
-      addedEvidence.push({
+      addedContents.push({
         path: operation.path,
         snippet: cappedSnippet(snippet),
         reason: `Targeted chunk read (${operation.startLine}-${operation.endLine})`,
@@ -475,7 +475,7 @@ export async function executeExplorationRound(
       }
 
       for (const path of pathHits) {
-        addedEvidence.push({
+        addedContents.push({
           path,
           snippet: `Matched path for query "${operation.query}": ${path}`,
           reason: 'Path-level repository search signal',
@@ -488,7 +488,7 @@ export async function executeExplorationRound(
             const matchSnippet = matchLines.map((m) => `${m.line}: ${m.text}`).join('\n');
             state.bytesFetched += bytesOf(matchSnippet);
             state.touchedFiles.add(path);
-            addedEvidence.push({
+            addedContents.push({
               path,
               snippet: cappedSnippet(matchSnippet),
               reason: `In-file matches for query "${operation.query}"`,
@@ -501,45 +501,59 @@ export async function executeExplorationRound(
 
     const capError = applyHardCaps(plan, state);
     if (capError) {
-      return { addedEvidence, nextOperations: remainingOps, completed: true, hardCapError: capError };
+      return { addedContents, nextOperations: remainingOps, completed: true, hardCapError: capError };
     }
   }
 
   const nextOperations = queueRefinementOperations(plan, state);
   const completed = nextOperations.length === 0;
-  return { addedEvidence, nextOperations, completed, hardCapError: null };
+  return { addedContents, nextOperations, completed, hardCapError: null };
 }
 
-export function buildRepoContextFromEvidence(input: {
+export function buildRepoContextFromScannedContents(input: {
   repoUrl: string;
   diagramType: DiagramType;
   description: string;
   language: string;
   shallowTree: string;
-  evidence: EvidenceItem[];
+  scannedContents: ScannedContent[];
   knownGaps: string[];
 }): RepoContextForDiagram {
-  const evidence = dedupeEvidence(input.evidence);
-  const keyFindings = evidence.slice(0, 10).map((item) => normalizeWhitespace(`${item.path}: ${item.reason}`));
+  const scannedContents = dedupeScannedContents(input.scannedContents);
+  const keyFindings = scannedContents.slice(0, 10).map((item) => normalizeWhitespace(`${item.path}: ${item.reason}`));
 
   const summaryParts = [
     `Repository language: ${input.language || 'Unknown'}.`,
     input.description ? `Description: ${input.description}.` : '',
-    `Evidence collected from ${new Set(evidence.map((item) => item.path)).size} files/paths.`,
+    `Scanned contents from ${new Set(scannedContents.map((item) => item.path)).size} files/paths.`,
   ].filter(Boolean);
 
-  const confidence = confidenceFromEvidence(evidence.length, input.knownGaps.length);
+  const confidence = confidenceFromScannedContents(scannedContents.length, input.knownGaps.length);
 
   return {
     repoUrl: input.repoUrl,
     diagramType: input.diagramType,
     summary: normalizeWhitespace(summaryParts.join(' ')),
     keyFindings,
-    evidence,
+    scannedContents,
     confidence,
     knownGaps: input.knownGaps.slice(0, 12),
   };
 }
+
+export const BOARD_POSITIONING_RULES = [
+  'You MUST use provided tools for all board changes.',
+  'Never invent IDs. Use IDs returned from tool results.',
+  'Prefer getBoardState when object lookup is needed.',
+  'Respect viewportCenter when placing new content; omit x/y to use deterministic placement near viewport center.',
+  'Interpret user-specified coordinates (e.g. "position 100, 200") as viewport pixel coordinates from the caller\'s visible top-left unless the user explicitly says absolute/world coordinates.',
+  'Keep commands concise.',
+  'If selectedObjectIds is provided in the user payload and the request references "selected", operate on those IDs only.',
+  'For structured templates (SWOT/retro/kanban/matrix), create one outer frame plus labeled inner section frames and avoid seed content unless asked.',
+  'When creating frames, follow the deterministic sizing/spacing rules from the tool descriptions. Frames must be sized large enough to fully contain all their child items with padding — no child should extend beyond the frame boundary.',
+  'When you need to display text, always use sticky notes (createStickyNote) instead of standalone text objects. Stickies are the primary text vehicle on the board.',
+  'NEVER overlap elements. Leave clear gaps between all objects. It is perfectly fine to place elements outside the current viewport to avoid overlapping — the user can pan to see them.',
+];
 
 export function buildRepoSystemPrompt(ctx: RepoContextForDiagram | LegacyRepoContext): string {
   if ('files' in ctx) {
@@ -558,11 +572,13 @@ export function buildRepoSystemPrompt(ctx: RepoContextForDiagram | LegacyRepoCon
       '```',
       'Key Files:',
       fileSection,
-      'Use only evidence from the provided files. If uncertain, annotate assumptions explicitly.',
+      'Board rules:',
+      ...BOARD_POSITIONING_RULES.map((r) => `- ${r}`),
+      'Use only the scanned contents from the provided files. If uncertain, annotate assumptions explicitly.',
     ].filter(Boolean).join('\n');
   }
 
-  const evidenceText = ctx.evidence
+  const scannedText = ctx.scannedContents
     .slice(0, 30)
     .map((item) => `=== ${item.path} (${item.source}) ===\nReason: ${item.reason}\n${item.snippet}`)
     .join('\n\n');
@@ -573,10 +589,12 @@ export function buildRepoSystemPrompt(ctx: RepoContextForDiagram | LegacyRepoCon
     `Summary: ${ctx.summary}`,
     `Confidence: ${ctx.confidence}`,
     ctx.knownGaps.length ? `Known gaps: ${ctx.knownGaps.join(' | ')}` : '',
-    'Evidence:',
-    evidenceText,
-    'Rules:',
-    '- Do not invent modules/entities not present in evidence.',
+    'Scanned Contents:',
+    scannedText,
+    'Board rules:',
+    ...BOARD_POSITIONING_RULES.map((r) => `- ${r}`),
+    'Diagram rules:',
+    '- Do not invent modules/entities not present in the scanned contents.',
     '- Use clear labels from the actual codebase where possible.',
     '- If a critical connection is missing, annotate it as an assumption/gap.',
   ].filter(Boolean).join('\n');
@@ -650,7 +668,7 @@ export async function runGitHubExplorationPipeline(input: PipelineInput): Promis
   const retrievalStart = Date.now();
   const state: RetrievalState = {
     round: 0,
-    evidence: [],
+    scannedContents: [],
     touchedFiles: new Set<string>(),
     bytesFetched: 0,
     knownGaps: [],
@@ -660,7 +678,7 @@ export async function runGitHubExplorationPipeline(input: PipelineInput): Promis
   for (let round = 1; round <= plan.maxRounds; round++) {
     state.round = round;
     const roundResult = await executeExplorationRound(input, plan, state);
-    state.evidence.push(...roundResult.addedEvidence);
+    state.scannedContents.push(...roundResult.addedContents);
     state.pendingOperations = [...roundResult.nextOperations];
     metrics.roundsUsed = round;
 
@@ -683,22 +701,22 @@ export async function runGitHubExplorationPipeline(input: PipelineInput): Promis
   metrics.filesTouched = state.touchedFiles.size;
   metrics.bytesFetched = state.bytesFetched;
 
-  if (state.evidence.length === 0) {
+  if (state.scannedContents.length === 0) {
     metrics.fallbackPathTaken = metrics.fallbackPathTaken === 'none' ? 'heuristic' : metrics.fallbackPathTaken;
     return {
       ok: false,
-      userMessage: 'GitHub analysis could not retrieve useful source evidence from this repository scope. Please provide a more specific path or question.',
+      userMessage: 'GitHub analysis could not retrieve useful scanned contents from this repository scope. Please provide a more specific path or question.',
       metrics,
     };
   }
 
-  const context = buildRepoContextFromEvidence({
+  const context = buildRepoContextFromScannedContents({
     repoUrl: input.repoUrl,
     diagramType: plan.diagramType,
     description: input.metadata.description,
     language: input.metadata.language,
     shallowTree: bootstrap.shallowTree,
-    evidence: state.evidence,
+    scannedContents: state.scannedContents,
     knownGaps: state.knownGaps,
   });
 

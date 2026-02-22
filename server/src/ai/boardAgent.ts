@@ -7,7 +7,7 @@ import { BoardToolRunner } from './boardTools.js';
 import { normalizeViewportCenter, toLangChainTools } from './schema.js';
 import { finishAITrace, recordAIError, startAITrace, getTraceCallbacks } from './observability.js';
 import { extractGitHubUrl, fetchRepoMetadata, fetchRepoTree } from './github.js';
-import { buildRepoSystemPrompt, runGitHubExplorationPipeline, type GitHubAnalysisMetrics } from './codeAnalyzer.js';
+import { BOARD_POSITIONING_RULES, buildRepoSystemPrompt, runGitHubExplorationPipeline, type GitHubAnalysisMetrics } from './codeAnalyzer.js';
 
 const FAST_MODEL = process.env.OPENAI_FAST_MODEL || 'gpt-4o-mini';
 const POWER_MODEL = process.env.OPENAI_MODEL || 'gpt-5.2';
@@ -16,16 +16,7 @@ const MAX_TOOL_ROUNDS = 8;
 function buildSystemPrompt(): string {
   return [
     'You are an AI whiteboard assistant.',
-    'You MUST use provided tools for all board changes.',
-    'Never invent IDs. Use IDs returned from tool results.',
-    'Prefer getBoardState when object lookup is needed.',
-    'Respect viewportCenter when placing new content; omit x/y to use deterministic placement near viewport center.',
-    'Interpret user-specified coordinates (e.g. "position 100, 200") as viewport pixel coordinates from the caller\'s visible top-left unless the user explicitly says absolute/world coordinates.',
-    'Keep commands concise.',
-    'If selectedObjectIds is provided in the user payload and the request references "selected", operate on those IDs only.',
-    'For structured templates (SWOT/retro/kanban/matrix), create one outer frame plus labeled inner section frames and avoid seed content unless asked.',
-    'When creating frames, follow the deterministic sizing/spacing rules from the tool descriptions.',
-    'When you need to display text, always use sticky notes (createStickyNote) instead of standalone text objects. Stickies are the primary text vehicle on the board.',
+    ...BOARD_POSITIONING_RULES,
   ].join('\n');
 }
 
