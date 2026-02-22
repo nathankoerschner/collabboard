@@ -450,42 +450,6 @@ export class Renderer {
     }
   }
 
-  drawHitboxGlow(ctx: CanvasRenderingContext2D, obj: BoardObject, camera: Camera, ringPx = 10): void {
-    const ring = ringPx / camera.scale;
-    const halfRing = ring / 2;
-
-    ctx.save();
-    ctx.strokeStyle = 'rgba(37, 99, 235, 0.18)';
-    ctx.lineWidth = ring;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-
-    this._drawRotatedBox(ctx, obj, (lx, ly, w, h) => {
-      if (
-        obj.type === 'ellipse' ||
-        (obj.type === 'shape' &&
-          ((obj as ShapeObject).shapeKind === 'ellipse' || (obj as ShapeObject).shapeKind === 'circle'))
-      ) {
-        ctx.beginPath();
-        ctx.ellipse(lx + w / 2, ly + h / 2, w / 2 + halfRing, h / 2 + halfRing, 0, 0, Math.PI * 2);
-        ctx.stroke();
-      } else if (obj.type === 'shape') {
-        const def = SHAPE_DEFS.get((obj as ShapeObject).shapeKind);
-        if (def) {
-          // Expand the shape path outward by drawing at offset bounds
-          const p = def.path(lx - halfRing, ly - halfRing, w + ring, h + ring);
-          ctx.stroke(p);
-        }
-      } else {
-        const r = obj.type === 'sticky' ? 6 : 8;
-        this.roundRect(ctx, lx - halfRing, ly - halfRing, w + ring, h + ring, r + halfRing);
-        ctx.stroke();
-      }
-    });
-
-    ctx.restore();
-  }
-
   _drawRotatedBox(ctx: CanvasRenderingContext2D, obj: BoardObject, drawFn: (lx: number, ly: number, w: number, h: number) => void): void {
     const center = getObjectCenter(obj);
     ctx.save();

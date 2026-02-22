@@ -5,7 +5,6 @@ import {
   hitTestRotationHandle,
   getHandlePositions,
   getConnectorHitEndpoint,
-  hitTestPort,
 } from '../HitTest.js';
 import type { BoardObject, Connector } from '../../types.js';
 
@@ -219,24 +218,3 @@ describe('getConnectorHitEndpoint', () => {
   });
 });
 
-describe('hitTestPort', () => {
-  test('point near port returns that port', () => {
-    const obj = makeRect({ x: 0, y: 0, width: 100, height: 100 });
-    const port = hitTestPort(50, 2, obj, 1);
-    expect(port).not.toBeNull();
-    expect(port!.name).toBe('n');
-  });
-
-  test('miss returns null', () => {
-    const obj = makeRect({ x: 0, y: 0, width: 100, height: 100 });
-    expect(hitTestPort(50, 50, obj, 1)).toBeNull();
-  });
-
-  test('respects scale', () => {
-    const obj = makeRect({ x: 0, y: 0, width: 100, height: 100 });
-    // At scale 0.5, port detection radius is 16 world units
-    const port = hitTestPort(50, 15, obj, 0.5);
-    expect(port).not.toBeNull();
-    expect(port!.name).toBe('n');
-  });
-});

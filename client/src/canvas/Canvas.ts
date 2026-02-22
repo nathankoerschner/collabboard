@@ -225,17 +225,8 @@ export class Canvas {
       });
     }
 
-    // Draw hitbox glow for hovered/drag-target shapes
-    const hoveredHitboxId = this.inputHandler.getHoveredHitboxId();
-    const dragTargetHitboxId = this.inputHandler.getDragTargetHitboxId();
-    if (hoveredHitboxId) {
-      const glowObj = byId.get(hoveredHitboxId);
-      if (glowObj) this.renderer.drawHitboxGlow(ctx, glowObj, this.camera);
-    }
-    if (dragTargetHitboxId && dragTargetHitboxId !== hoveredHitboxId) {
-      const glowObj = byId.get(dragTargetHitboxId);
-      if (glowObj) this.renderer.drawHitboxGlow(ctx, glowObj, this.camera);
-    }
+    // Draw hitbox ring glow for hovered/drag-target shapes
+    this.inputHandler.getHitboxRing().draw(ctx, byId, this.camera, this.renderer);
 
     const selectedObjects = this.selectedIds.map((id) => byId.get(id)).filter((o): o is BoardObject => !!o);
     this.renderer.drawSelection(ctx, selectedObjects, this.camera, byId);

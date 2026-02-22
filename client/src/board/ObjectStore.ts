@@ -723,7 +723,7 @@ export class ObjectStore {
 
   getAttachableAtPoint(wx: number, wy: number, excludeIds: string | string[] | null = null, _scale = 1): AttachResult | null {
     const excluded = new Set(Array.isArray(excludeIds) ? excludeIds : excludeIds ? [excludeIds] : []);
-    const all = this.getAll().filter((o) => o.type !== 'connector' && o.type !== 'frame' && !excluded.has(o.id));
+    const all = this.getAll().filter((o) => o.type !== 'connector' && o.type !== 'frame' && o.type !== 'text' && !excluded.has(o.id));
     const snapDist = 20;
 
     for (let i = all.length - 1; i >= 0; i--) {
