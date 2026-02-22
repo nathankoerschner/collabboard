@@ -20,9 +20,28 @@ const _rotationIcon: HTMLImageElement = (() => {
 
 export class Renderer {
   palette: Palette;
+  stickyScrollOffsets: Map<string, number> = new Map();
 
   constructor(palette: Palette = {}) {
     this.palette = palette;
+  }
+
+  stickyTextOverflow(ctx: CanvasRenderingContext2D, obj: BoardObject): number {
+    if (obj.type !== 'sticky' || !obj.text) return 0;
+    const padding = 10;
+    const font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    const textAreaW = obj.width - padding * 2;
+    const textAreaH = obj.height - padding * 2;
+    const totalH = this._measureWrappedTextHeight(ctx, obj.text, textAreaW, 18, font);
+    return Math.max(0, totalH - textAreaH);
+  }
+
+  scrollSticky(id: string, delta: number, maxScroll: number): boolean {
+    const current = this.stickyScrollOffsets.get(id) || 0;
+    const next = Math.max(0, Math.min(maxScroll, current + delta));
+    if (next === current) return false;
+    this.stickyScrollOffsets.set(id, next);
+    return true;
   }
 
   drawBackground(ctx: CanvasRenderingContext2D, camera: Camera, canvasWidth: number, canvasHeight: number): void {
@@ -90,12 +109,39 @@ export class Renderer {
       ctx.restore();
 
       if (!skipText && obj.type === 'sticky' && obj.text) {
+        const padding = 10;
+        const font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        const lineHeight = 18;
+        const textAreaW = w - padding * 2;
+        const textAreaH = h - padding * 2;
+        const totalTextH = this._measureWrappedTextHeight(ctx, obj.text, textAreaW, lineHeight, font);
+        const overflows = totalTextH > textAreaH;
+        const scrollOffset = overflows ? (this.stickyScrollOffsets.get(obj.id) || 0) : 0;
+
         ctx.save();
         ctx.beginPath();
         ctx.rect(lx + 8, ly + 8, w - 16, h - 16);
         ctx.clip();
-        this._drawWrappedText(ctx, obj.text, lx + 10, ly + 10, w - 20, 18, '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', '#1a1a2e');
+        this._drawWrappedText(ctx, obj.text, lx + padding, ly + padding - scrollOffset, textAreaW, lineHeight, font, '#1a1a2e');
         ctx.restore();
+
+        if (overflows) {
+          const trackX = lx + w - 10;
+          const trackY = ly + 8;
+          const trackH = h - 16;
+          const thumbRatio = textAreaH / totalTextH;
+          const thumbH = Math.max(20, trackH * thumbRatio);
+          const maxScroll = totalTextH - textAreaH;
+          const scrollRatio = maxScroll > 0 ? scrollOffset / maxScroll : 0;
+          const thumbY = trackY + scrollRatio * (trackH - thumbH);
+
+          ctx.fillStyle = 'rgba(0,0,0,0.08)';
+          this.roundRect(ctx, trackX, trackY, 4, trackH, 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(0,0,0,0.25)';
+          this.roundRect(ctx, trackX, thumbY, 4, thumbH, 2);
+          ctx.fill();
+        }
       }
     });
   }
@@ -533,7 +579,29 @@ export class Renderer {
     ctx.closePath();
   }
 
-  _drawWrappedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number, font: string, color: string): void {
+  _measureWrappedTextHeight(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, lineHeight: number, font: string): number {
+    ctx.font = font;
+    let totalHeight = 0;
+    const paragraphs = String(text).split('\n');
+    for (const paragraph of paragraphs) {
+      if (!paragraph.length) { totalHeight += lineHeight; continue; }
+      const words = paragraph.split(/\s+/);
+      let line = '';
+      for (const word of words) {
+        const test = line ? `${line} ${word}` : word;
+        if (ctx.measureText(test).width > maxWidth && line) {
+          line = word;
+          totalHeight += lineHeight;
+        } else {
+          line = test;
+        }
+      }
+      if (line) totalHeight += lineHeight;
+    }
+    return totalHeight;
+  }
+
+  _drawWrappedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number, font: string, color: string): number {
     ctx.fillStyle = color;
     ctx.font = font;
     ctx.textAlign = 'left';
@@ -563,6 +631,7 @@ export class Renderer {
       if (line) ctx.fillText(line, x, cy);
       cy += lineHeight;
     }
+    return cy - y;
   }
 
   _drawRotatedBox(ctx: CanvasRenderingContext2D, obj: BoardObject, drawFn: (lx: number, ly: number, w: number, h: number) => void): void {

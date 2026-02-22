@@ -9,6 +9,7 @@ import {
 import { getConnectorEndpoints, getObjectAABB, getSelectionBounds, nearestPerimeterT, pointInObject } from './Geometry.js';
 import { Camera } from './Camera.js';
 import { HitboxRing } from './HitboxRing.js';
+import type { Renderer } from './Renderer.js';
 
 type DragType = 'pan' | 'move' | 'resize' | 'rotate' | 'marquee' | 'connector-end' | 'shape-create' | null;
 
@@ -40,6 +41,7 @@ export class InputHandler {
   activeShapeKind: ShapeKind | null = null;
   shapePreviewRect: Bounds | null = null;
   hitboxRing = new HitboxRing();
+  renderer: Renderer | null = null;
 
   private readonly _onMouseDown: (e: MouseEvent) => void;
   private readonly _onMouseMove: (e: MouseEvent) => void;
@@ -451,6 +453,24 @@ export class InputHandler {
     const rect = this.canvasEl.getBoundingClientRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
+
+    // Check if scrolling over a sticky with text overflow
+    if (!e.ctrlKey && this.renderer) {
+      const { x: wx, y: wy } = this.camera.screenToWorld(cx, cy);
+      const objects = this.getObjects();
+      for (let i = objects.length - 1; i >= 0; i--) {
+        const obj = objects[i]!;
+        if (obj.type !== 'sticky' || !obj.text) continue;
+        if (!pointInObject(wx, wy, obj)) continue;
+        const ctx = this.canvasEl.getContext('2d')!;
+        const overflow = this.renderer.stickyTextOverflow(ctx, obj);
+        if (overflow > 0) {
+          this.renderer.scrollSticky(obj.id, e.deltaY * 0.5, overflow);
+          return;
+        }
+        break;
+      }
+    }
 
     if (e.ctrlKey) {
       this.camera.zoom(e.deltaY > 0 ? 0.95 : 1.05, cx, cy);

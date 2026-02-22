@@ -163,6 +163,8 @@ export class Canvas {
       },
     });
 
+    this.inputHandler.renderer = this.renderer;
+
     canvasEl.addEventListener('dblclick', (e) => {
       const rect = canvasEl.getBoundingClientRect();
       const sx = e.clientX - rect.left;
