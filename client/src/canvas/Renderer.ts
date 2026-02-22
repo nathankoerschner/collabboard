@@ -201,7 +201,7 @@ export class Renderer {
     this._drawRotatedBox(ctx, obj, (lx, ly, w, _h) => {
       const size = this._textSizePx(text.style?.size || 'medium');
       const font = `${text.style?.italic ? 'italic ' : ''}${text.style?.bold ? '700 ' : '400 '}${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      this._drawWrappedText(ctx, text.content || '', lx + 6, ly + 6, Math.max(20, w - 12), size * 1.3, font, this.color(text.color, '#000000'));
+      this._drawWrappedText(ctx, text.content || '', lx + 6, ly + 6, Math.max(20, w - 12), size * 1.3, font, this.color(text.color, '#334155'));
     });
   }
 

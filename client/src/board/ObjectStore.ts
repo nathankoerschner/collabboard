@@ -23,7 +23,6 @@ const PALETTE: Palette = {
   orange: '#fed7aa',
   red: '#fecaca',
   teal: '#99f6e4',
-  black: '#000000',
 };
 
 const BASE_MIN_SIZE = 24;
@@ -537,7 +536,7 @@ export class ObjectStore {
       obj.strokeColor = '#64748b';
     } else if (type === 'text') {
       obj.content = '';
-      obj.color = '#000000';
+      obj.color = '#334155';
       obj.style = { bold: false, italic: false, size: 'medium' };
     } else if (type === 'connector') {
       obj.width = 0;

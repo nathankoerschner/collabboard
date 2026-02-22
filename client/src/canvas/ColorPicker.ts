@@ -137,6 +137,6 @@ export const SHAPE_COLORS: ColorEntry[] = [
   { name: 'Red (bold)',     value: '#ef4444', hex: '#ef4444' },
   { name: 'Teal (bold)',    value: '#14b8a6', hex: '#14b8a6' },
   { name: 'Gray (bold)',    value: '#6b7280', hex: '#6b7280' },
-  { name: 'Black',          value: '#0f172a', hex: '#0f172a' },
+  { name: 'Slate',          value: '#475569', hex: '#475569' },
   { name: 'Yellow (bold)',  value: '#eab308', hex: '#eab308' },
 ];

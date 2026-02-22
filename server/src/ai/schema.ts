@@ -23,7 +23,7 @@ export const SHAPE_TYPES = ['rectangle', 'ellipse'] as const;
 export const CONNECTOR_STYLES = ['line', 'arrow'] as const;
 export const TEXT_SIZES = ['small', 'medium', 'large'] as const;
 export const STICKY_COLORS = ['yellow', 'blue', 'green', 'pink', 'purple', 'orange', 'red', 'teal'] as const;
-export const PALETTE_NAMES = [...STICKY_COLORS, 'black'] as const;
+export const PALETTE_NAMES = [...STICKY_COLORS, 'gray'] as const;
 
 export const DEFAULT_VIEWPORT_CENTER = { x: 0, y: 0 };
 
@@ -54,7 +54,7 @@ export function normalizeAngle(value: unknown): number {
   return out > 180 ? out - 360 : out;
 }
 
-export function sanitizeColor(value: unknown, fallback = 'black'): string {
+export function sanitizeColor(value: unknown, fallback = 'gray'): string {
   if (typeof value !== 'string') return fallback;
   return (PALETTE_NAMES as readonly string[]).includes(value) ? value : fallback;
 }
@@ -139,7 +139,7 @@ const toolPostProcess: Record<string, (a: Record<string, unknown>) => Record<str
     height: clampNumber(a.height, 24, 2000, 60),
     fontSize: (TEXT_SIZES as readonly string[]).includes(a.fontSize as string) ? a.fontSize : 'medium',
     bold: Boolean(a.bold), italic: Boolean(a.italic),
-    color: sanitizeColor(a.color, 'black'),
+    color: sanitizeColor(a.color, 'gray'),
   }),
   moveObject: (a) => ({
     objectId: stringOrNull(a.objectId),
@@ -166,7 +166,7 @@ const toolPostProcess: Record<string, (a: Record<string, unknown>) => Record<str
   }),
   changeColor: (a) => ({
     objectId: stringOrNull(a.objectId),
-    color: sanitizeColor(a.color, 'black'),
+    color: sanitizeColor(a.color, 'gray'),
   }),
   rotateObject: (a) => ({
     objectId: stringOrNull(a.objectId),

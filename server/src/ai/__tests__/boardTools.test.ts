@@ -300,12 +300,11 @@ describe('changeColor', () => {
     expect(runner.objects.get(shape.id)!.color).toBe('red');
   });
 
-  test('invalid falls back to black (sanitizeColor default)', () => {
+  test('invalid falls back to gray via validateToolArgs', () => {
     const shape = createShape();
     runner.changeColor({ objectId: shape.id, color: 'neon' });
-    // sanitizeColor('neon', currentColor) — but changeColor passes the current color as fallback
-    // Since args go through validateToolArgs first, color is already sanitized to 'black'
-    expect(runner.objects.get(shape.id)!.color).toBe('black');
+    // validateToolArgs sanitizes 'neon' to the default fallback 'gray'
+    expect(runner.objects.get(shape.id)!.color).toBe('gray');
   });
 
   test('connector returns error', () => {

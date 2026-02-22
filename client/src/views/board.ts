@@ -208,7 +208,7 @@ export const boardView = {
         } else {
           objectStore.createObject('text', x, y, rand(100, 250), 40, {
             content: pick(textSamples),
-            color: '#000000',
+            color: '#334155',
             style: { bold: Math.random() > 0.7, italic: false, size: pick(['small', 'medium', 'large']) },
           });
         }
