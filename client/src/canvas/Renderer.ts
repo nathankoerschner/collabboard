@@ -76,7 +76,7 @@ export class Renderer {
   }
 
   drawStickyNote(ctx: CanvasRenderingContext2D, obj: BoardObject, skipText = false): void {
-    const color = this._color(obj.type === 'sticky' ? (obj as import('../types.js').StickyNote).color : '', '#fef08a');
+    const color = this.color(obj.type === 'sticky' ? (obj as import('../types.js').StickyNote).color : '', '#fef08a');
     this._drawRotatedBox(ctx, obj, (lx, ly, w, h) => {
       ctx.save();
       ctx.shadowColor = 'rgba(0,0,0,0.12)';
@@ -101,8 +101,8 @@ export class Renderer {
 
   drawRectangle(ctx: CanvasRenderingContext2D, obj: BoardObject): void {
     const rect = obj as import('../types.js').RectangleObject;
-    const fill = this._color(rect.color, '#bfdbfe');
-    const stroke = this._color(rect.strokeColor, '#64748b');
+    const fill = this.color(rect.color, '#bfdbfe');
+    const stroke = this.color(rect.strokeColor, '#64748b');
 
     this._drawRotatedBox(ctx, obj, (lx, ly, w, h) => {
       ctx.fillStyle = fill;
@@ -117,8 +117,8 @@ export class Renderer {
 
   drawEllipse(ctx: CanvasRenderingContext2D, obj: BoardObject): void {
     const ellipse = obj as import('../types.js').EllipseObject;
-    const fill = this._color(ellipse.color, '#99f6e4');
-    const stroke = this._color(ellipse.strokeColor, '#64748b');
+    const fill = this.color(ellipse.color, '#99f6e4');
+    const stroke = this.color(ellipse.strokeColor, '#64748b');
 
     this._drawRotatedBox(ctx, obj, (lx, ly, w, h) => {
       const cx = lx + w / 2;
@@ -137,7 +137,7 @@ export class Renderer {
     const def = SHAPE_DEFS.get(obj.shapeKind);
     if (!def) return;
 
-    const fill = this._color(obj.color, '#bfdbfe');
+    const fill = this.color(obj.color, '#bfdbfe');
 
     this._drawRotatedBox(ctx, obj, (lx, ly, w, h) => {
       ctx.fillStyle = fill;
@@ -154,7 +154,7 @@ export class Renderer {
     this._drawRotatedBox(ctx, obj, (lx, ly, w, _h) => {
       const size = this._textSizePx(text.style?.size || 'medium');
       const font = `${text.style?.italic ? 'italic ' : ''}${text.style?.bold ? '700 ' : '400 '}${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      this._drawWrappedText(ctx, text.content || '', lx + 6, ly + 6, Math.max(20, w - 12), size * 1.3, font, this._color(text.color, '#000000'));
+      this._drawWrappedText(ctx, text.content || '', lx + 6, ly + 6, Math.max(20, w - 12), size * 1.3, font, this.color(text.color, '#000000'));
     });
   }
 
@@ -514,7 +514,7 @@ export class Renderer {
     }
   }
 
-  _color(nameOrHex: string | undefined, fallback: string): string {
+  color(nameOrHex: string | undefined, fallback: string): string {
     if (!nameOrHex) return fallback;
     if (nameOrHex.startsWith?.('#')) return nameOrHex;
     return this.palette[nameOrHex] || fallback;

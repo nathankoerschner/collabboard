@@ -193,7 +193,6 @@ export interface InputHandlerCallbacks {
   onCopySelection?: (ids: string[]) => void;
   onPaste?: () => void;
   onDuplicateSelection?: (ids: string[]) => void;
-  onToolShortcut?: (tool: ToolName) => void;
   onToolAutoReset?: (tool: ToolName) => void;
   onEditObject?: (id: string) => void;
   onBringToFront?: (id: string) => void;

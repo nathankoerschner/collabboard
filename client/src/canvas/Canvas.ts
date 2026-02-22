@@ -1,5 +1,7 @@
 import type { BoardObject, CanvasCallbacks, RevealEntry, RevealState, ShapeKind, ToolName } from '../types.js';
 import { Camera } from './Camera.js';
+import { copySelection, pasteClipboard, duplicateSelection } from './Clipboard.js';
+import { pointInObject } from './Geometry.js';
 import { Renderer } from './Renderer.js';
 import { InputHandler } from './InputHandler.js';
 import { TextEditor } from './TextEditor.js';
@@ -7,8 +9,6 @@ import { ObjectStore } from '../board/ObjectStore.js';
 import { UndoRedoManager } from '../board/UndoRedoManager.js';
 import { CursorManager } from '../board/CursorManager.js';
 import { SHAPE_DEFS } from '../board/ShapeDefs.js';
-
-const CLIPBOARD_KEY = 'collabboard.clipboard.v1';
 
 export class Canvas {
   canvasEl: HTMLCanvasElement;
@@ -42,19 +42,16 @@ export class Canvas {
 
     this.textEditor = new TextEditor(canvasEl, this.camera, {
       onTextChange: (id, text) => {
-        this.objectStore.transactionOrigin = 'text-edit';
-        this.objectStore.updateText(id, text);
+        this.objectStore.withOrigin('text-edit', () => this.objectStore.updateText(id, text));
       },
       onTextStyleChange: (id, patch) => {
-        this.objectStore.transactionOrigin = 'text-edit';
-        this.objectStore.updateTextStyle(id, patch);
+        this.objectStore.withOrigin('text-edit', () => this.objectStore.updateTextStyle(id, patch));
       },
       onResize: (id, _w, h) => {
         const obj = this.objectStore.getObject(id);
         if (!obj) return;
         if (h > obj.height) {
-          this.objectStore.transactionOrigin = 'text-edit';
-          this.objectStore.resizeObject(id, obj.x, obj.y, obj.width, h);
+          this.objectStore.withOrigin('text-edit', () => this.objectStore.resizeObject(id, obj.x, obj.y, obj.width, h));
         }
       },
       onEditEnd: () => {
@@ -70,16 +67,13 @@ export class Canvas {
         this.callbacks.onSelectionChange?.(ids);
       },
       onMoveSelection: (ids, dx, dy) => {
-        this.objectStore.transactionOrigin = 'gesture';
-        this.objectStore.moveObjects(ids, dx, dy);
+        this.objectStore.withOrigin('gesture', () => this.objectStore.moveObjects(ids, dx, dy));
       },
       onResizeObject: (id, x, y, w, h) => {
-        this.objectStore.transactionOrigin = 'gesture';
-        this.objectStore.resizeObject(id, x, y, w, h);
+        this.objectStore.withOrigin('gesture', () => this.objectStore.resizeObject(id, x, y, w, h));
       },
       onRotateSelection: (ids, delta, pivot) => {
-        this.objectStore.transactionOrigin = 'gesture';
-        this.objectStore.rotateObjects(ids, delta, pivot);
+        this.objectStore.withOrigin('gesture', () => this.objectStore.rotateObjects(ids, delta, pivot));
       },
       onCreate: (type, x, y, w, h, extra) => {
         const obj = this.objectStore.createObject(type, x, y, w, h, extra || {});
@@ -104,10 +98,6 @@ export class Canvas {
       onCopySelection: (ids) => this.copySelection(ids),
       onPaste: () => this.pasteClipboard(),
       onDuplicateSelection: (ids) => this.duplicateSelection(ids),
-      onToolShortcut: (tool) => {
-        this.setTool(tool);
-        this.callbacks.onToolChange?.(tool);
-      },
       onToolAutoReset: (tool) => {
         this.setTool(tool);
         this.callbacks.onToolChange?.(tool);
@@ -145,16 +135,13 @@ export class Canvas {
         return this.objectStore.getAttachableAtPoint(wx, wy, excludeIds, this.camera.scale);
       },
       onConnectorEndpoint: (id, side, payload) => {
-        this.objectStore.transactionOrigin = 'gesture';
-        this.objectStore.updateConnectorEndpoint(id, side, payload);
+        this.objectStore.withOrigin('gesture', () => this.objectStore.updateConnectorEndpoint(id, side, payload));
       },
       onFinishConnector: () => {
-        this.objectStore.transactionOrigin = 'local';
-        this.undoRedoManager.stopCapturing();
+        this.objectStore.withOrigin('local', () => this.undoRedoManager.stopCapturing());
       },
       onGestureEnd: () => {
-        this.objectStore.transactionOrigin = 'local';
-        this.undoRedoManager.stopCapturing();
+        this.objectStore.withOrigin('local', () => this.undoRedoManager.stopCapturing());
       },
       onUndo: () => {
         this.undoRedoManager.undo();
@@ -192,7 +179,7 @@ export class Canvas {
   }
 
   _pointInObjectAabb(wx: number, wy: number, obj: BoardObject): boolean {
-    return wx >= obj.x && wx <= obj.x + obj.width && wy >= obj.y && wy <= obj.y + obj.height;
+    return pointInObject(wx, wy, obj);
   }
 
   _resize(): void {
@@ -266,8 +253,8 @@ export class Canvas {
       if (def) {
         ctx.save();
         ctx.globalAlpha = 0.5;
-        ctx.fillStyle = this.renderer._color('blue', '#bfdbfe');
-        ctx.strokeStyle = this.renderer._color('gray', '#64748b');
+        ctx.fillStyle = this.renderer.color('blue', '#bfdbfe');
+        ctx.strokeStyle = this.renderer.color('gray', '#64748b');
         ctx.lineWidth = 2;
         def.draw(ctx, shapePreview.x, shapePreview.y, shapePreview.width, shapePreview.height);
         ctx.restore();
@@ -293,33 +280,24 @@ export class Canvas {
   }
 
   copySelection(ids: string[] = this.selectedIds): void {
-    if (!ids?.length) return;
-    const payload = this.objectStore.serializeSelection(ids);
-    const data = JSON.stringify({ version: 1, objects: payload, copiedAt: Date.now() });
-    localStorage.setItem(CLIPBOARD_KEY, data);
+    copySelection(ids, this.objectStore);
   }
 
   pasteClipboard(): void {
-    const raw = localStorage.getItem(CLIPBOARD_KEY);
-    if (!raw) return;
-
-    try {
-      const parsed = JSON.parse(raw);
-      if (!parsed?.objects?.length) return;
-      const center = this.camera.screenToWorld(this.canvasEl.clientWidth / 2, this.canvasEl.clientHeight / 2);
-      const pastedIds = this.objectStore.pasteSerialized(parsed.objects, { x: center.x + 20, y: center.y + 20 }, false);
+    const center = this.camera.screenToWorld(this.canvasEl.clientWidth / 2, this.canvasEl.clientHeight / 2);
+    const pastedIds = pasteClipboard(this.objectStore, center);
+    if (pastedIds.length) {
       this.selectedIds = pastedIds;
       this.inputHandler.setSelection(pastedIds);
-    } catch {
-      // ignore invalid clipboard data
     }
   }
 
   duplicateSelection(ids: string[] = this.selectedIds): void {
-    if (!ids?.length) return;
-    const duplicated = this.objectStore.duplicateSelection(ids, { x: 20, y: 20 });
-    this.selectedIds = duplicated;
-    this.inputHandler.setSelection(duplicated);
+    const duplicated = duplicateSelection(ids, this.objectStore);
+    if (duplicated.length) {
+      this.selectedIds = duplicated;
+      this.inputHandler.setSelection(duplicated);
+    }
   }
 
   setTool(tool: ToolName): void {

@@ -4,12 +4,12 @@ import { PresencePanel } from '../board/PresencePanel.js';
 import { Canvas } from '../canvas/Canvas.js';
 import { getUser, getToken } from '../auth.js';
 import { navigateTo } from '../router.js';
-import { runAICommand, getBoard, renameBoard } from '../api.js';
-import { openBoardOptionsModal } from '../components/boardOptionsModal.js';
 import type { BoardObject, ShapeKind, ToolName } from '../types.js';
-import { SHAPE_DEFS } from '../board/ShapeDefs.js';
 import { SelectionToolbar } from '../canvas/SelectionToolbar.js';
 import { ColorPicker, STICKY_COLORS, SHAPE_COLORS } from '../canvas/ColorPicker.js';
+import { AiCommandBar } from '../ui/AiCommandBar.js';
+import { ShapesDrawer } from '../ui/ShapesDrawer.js';
+import { BoardHeader } from '../ui/BoardHeader.js';
 
 let boardManager: BoardManager | null = null;
 let canvas: Canvas | null = null;
@@ -18,8 +18,9 @@ let presencePanel: PresencePanel | null = null;
 let zoomInterval: ReturnType<typeof setInterval> | null = null;
 let selectionToolbar: SelectionToolbar | null = null;
 let colorPicker: ColorPicker | null = null;
-let aiPanelOpen = false;
-let aiSubmitting = false;
+let aiCommandBar: AiCommandBar | null = null;
+let shapesDrawer: ShapesDrawer | null = null;
+let boardHeader: BoardHeader | null = null;
 
 declare global {
   interface Window {
@@ -155,6 +156,8 @@ export const boardView = {
         navigateTo('/dashboard');
       },
     });
+
+    // ── Debug hooks ──
     window.__collabboardDebug = {
       getObjectCount: () => boardManager?.getObjectStore().getAll().length || 0,
       getObjectIds: () => boardManager?.getObjectStore().getAll().map((obj) => obj.id) || [],
@@ -167,7 +170,6 @@ export const boardView = {
       const shapeColors: string[] = ['#bfdbfe', '#bbf7d0', '#fecdd3', '#e9d5ff', '#fed7aa', '#99f6e4', '#fecaca'];
       const textSamples = ['Hello', 'TODO', 'Important', 'Note', 'Idea', 'Review', 'Draft', 'Question?', 'Done!', 'WIP'];
 
-      // Spread radius grows with count so high N doesn't overcrowd
       const radius = Math.sqrt(n) * 150;
       const cx = canvas?.getViewportCenter().x ?? 0;
       const cy = canvas?.getViewportCenter().y ?? 0;
@@ -181,14 +183,12 @@ export const boardView = {
         const roll = Math.random();
 
         if (roll < 0.4) {
-          // Sticky note
           const size = rand(120, 200);
           objectStore.createObject('sticky', x, y, size, size, {
             text: pick(textSamples),
             color: pick(stickyColors),
           });
         } else if (roll < 0.75) {
-          // Shape
           const w = rand(80, 200);
           const h = rand(80, 200);
           objectStore.createObject('shape', x, y, w, h, {
@@ -197,7 +197,6 @@ export const boardView = {
             strokeColor: '#64748b',
           });
         } else {
-          // Text
           objectStore.createObject('text', x, y, rand(100, 250), 40, {
             content: pick(textSamples),
             color: '#000000',
@@ -213,10 +212,7 @@ export const boardView = {
 
     const canvasEl = document.getElementById('board-canvas') as HTMLCanvasElement;
     const toolbar = document.getElementById('toolbar')!;
-    const aiToggleBtn = document.getElementById('ai-chat-toggle');
-
     const shapesBtn = document.getElementById('shapes-btn')!;
-
     const boardViewEl = document.getElementById('board-view')!;
     const objectStore = boardManager.getObjectStore();
 
@@ -265,7 +261,6 @@ export const boardView = {
           if (!obj || obj.type === 'connector' || obj.type === 'frame') continue;
           objectStore.updateColor(id, color);
         }
-        // Refresh toolbar swatch
         const isTextEditing = !!canvas?.textEditor.getEditingId();
         selectionToolbar?.update(ids, isTextEditing);
       },
@@ -288,7 +283,6 @@ export const boardView = {
       colorPicker!.open(selectionToolbar!.getSwatchButton(), colors, activeColor);
     });
 
-    // Click-away to close color picker
     document.addEventListener('click', (e) => {
       if (colorPicker?.isOpen() && !(e.target as HTMLElement).closest('.color-picker-popover') && !(e.target as HTMLElement).closest('.color-swatch-btn')) {
         colorPicker.close();
@@ -302,275 +296,64 @@ export const boardView = {
     });
 
     // ── Shapes Drawer ──
+    shapesDrawer = new ShapesDrawer({
+      anchorEl: shapesBtn,
+      boardViewEl,
+      onSelect: (kind) => {
+        canvas!.setTool('shape');
+        canvas!.setShapeKind(kind);
+        toolbar.querySelectorAll('.toolbar-btn[data-tool]').forEach((b) => b.classList.remove('active'));
+        shapesBtn.classList.add('active');
+      },
+    });
 
-    const shapesDrawer = document.createElement('div');
-    shapesDrawer.className = 'shapes-drawer';
-    shapesDrawer.innerHTML = `<div class="shapes-grid"></div>`;
-    boardViewEl.appendChild(shapesDrawer);
+    // ── Toolbar tool buttons ──
+    toolbar.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('[data-tool]') as HTMLElement | null;
+      if (!btn) return;
+      const tool = btn.dataset.tool as ToolName;
+      if (tool === 'shape') return; // handled by shapes drawer
+      canvas!.setTool(tool);
+      toolbar.querySelectorAll('.toolbar-btn[data-tool]').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
 
-    const shapesGrid = shapesDrawer.querySelector('.shapes-grid')!;
-    for (const [kind, def] of SHAPE_DEFS) {
-      const btn = document.createElement('button');
-      btn.className = 'shape-icon-btn';
-      btn.dataset.shapeKind = kind;
-      btn.title = def.label;
-      btn.innerHTML = def.icon;
-      shapesGrid.appendChild(btn);
-    }
+    // ── AI Command Bar ──
+    const aiToggleBtn = document.getElementById('ai-chat-toggle');
+    aiCommandBar = new AiCommandBar({
+      container: boardViewEl,
+      boardId,
+      getCanvas: () => canvas,
+      getUser: () => user as Record<string, unknown>,
+      aiToggleBtn,
+    });
 
-    let shapesDrawerOpen = false;
-    const toggleShapesDrawer = (open: boolean) => {
-      shapesDrawerOpen = open;
-      shapesDrawer.classList.toggle('open', open);
-      if (open) {
-        const rect = shapesBtn.getBoundingClientRect();
-        const boardRect = boardViewEl.getBoundingClientRect();
-        shapesDrawer.style.left = `${rect.left - boardRect.left + rect.width / 2}px`;
-        shapesDrawer.style.top = `${rect.bottom - boardRect.top + 8}px`;
+    // ── Cmd+K global shortcut ──
+    window._boardKeyHandler = (e: KeyboardEvent) => {
+      const isCommandToggle = (e.metaKey || e.ctrlKey) && e.key?.toLowerCase() === 'k';
+      if (isCommandToggle) {
+        e.preventDefault();
+        aiCommandBar?.toggle();
       }
     };
+    window.addEventListener('keydown', window._boardKeyHandler);
 
-    shapesBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleShapesDrawer(!shapesDrawerOpen);
+    // ── Board Header (name + options) ──
+    boardHeader = new BoardHeader({
+      boardId,
+      nameEl: document.getElementById('board-name')!,
+      optionsBtn: document.getElementById('board-options-btn')!,
+      userId: typeof userId === 'string' ? userId : undefined,
     });
 
-    shapesGrid.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement).closest('[data-shape-kind]') as HTMLElement | null;
-      if (!btn) return;
-      const kind = btn.dataset.shapeKind as ShapeKind;
-      canvas!.setTool('shape');
-      canvas!.setShapeKind(kind);
-      toggleShapesDrawer(false);
-      toolbar.querySelectorAll('.toolbar-btn[data-tool]').forEach((b) => b.classList.remove('active'));
-      shapesBtn.classList.add('active');
-    });
-
-    document.addEventListener('click', (e) => {
-      if (shapesDrawerOpen && !shapesDrawer.contains(e.target as Node) && e.target !== shapesBtn && !shapesBtn.contains(e.target as Node)) {
-        toggleShapesDrawer(false);
-      }
-    });
-
-    document.addEventListener('keydown', (e) => {
-      if (shapesDrawerOpen && e.key === 'Escape') {
-        toggleShapesDrawer(false);
-      }
-    });
-
+    // ── Presence ──
     presencePanel = new PresencePanel(boardViewEl, boardManager.getAwareness());
 
     document.getElementById('back-to-dashboard')!.addEventListener('click', () => {
       navigateTo('/dashboard');
     });
 
-    toolbar.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement).closest('[data-tool]') as HTMLElement | null;
-      if (!btn) return;
-      const tool = btn.dataset.tool as ToolName;
-      if (tool === 'shape') return; // handled by shapes drawer toggle above
-      canvas!.setTool(tool);
-      toolbar.querySelectorAll('.toolbar-btn[data-tool]').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-    });
-
-    const aiBar = document.getElementById('ai-command-bar')!;
-    const aiForm = document.getElementById('ai-command-form')!;
-    const aiInput = document.getElementById('ai-command-input') as HTMLInputElement;
-    const aiBackdrop = document.getElementById('ai-backdrop')!;
-    const aiToast = document.getElementById('ai-toast')!;
-    const aiWorking = document.getElementById('ai-working')!;
-    const aiBubble = document.getElementById('ai-bubble')!;
-    let toastTimer: ReturnType<typeof setTimeout> | null = null;
-    let bubbleTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const showBubble = (message: string) => {
-      aiBubble.textContent = message;
-      aiBubble.classList.add('visible');
-      if (bubbleTimer) clearTimeout(bubbleTimer);
-      bubbleTimer = setTimeout(() => {
-        aiBubble.classList.remove('visible');
-        bubbleTimer = null;
-      }, 3000);
-    };
-
-    const showToast = (message: string) => {
-      aiToast.textContent = message;
-      aiToast.classList.add('visible');
-      if (toastTimer) clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => {
-        aiToast.classList.remove('visible');
-        toastTimer = null;
-      }, 4000);
-    };
-
-    const syncAiPanel = (isOpen: boolean) => {
-      aiPanelOpen = isOpen;
-      aiBar.classList.toggle('visible', isOpen);
-      aiBackdrop.classList.toggle('visible', isOpen);
-      aiBar.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
-      aiToggleBtn?.classList.toggle('active', isOpen);
-
-      if (isOpen && aiSubmitting) {
-        // Show "Working..." state
-        aiForm.hidden = true;
-        aiWorking.hidden = false;
-      } else if (isOpen) {
-        // Show normal input state
-        aiForm.hidden = false;
-        aiWorking.hidden = true;
-        aiInput.focus();
-      }
-
-      if (!isOpen) {
-        aiInput.value = '';
-        aiInput.blur();
-      }
-    };
-
-    const submitAICommand = async (prompt: string): Promise<void> => {
-      const trimmedPrompt = prompt.trim();
-      if (!trimmedPrompt || aiSubmitting) return;
-
-      aiSubmitting = true;
-      // Close bar immediately and start toolbar spinner
-      syncAiPanel(false);
-      aiToggleBtn?.classList.add('ai-processing');
-
-      // Snapshot board state before AI so we can build precise undo entries
-      canvas?.undoRedoManager.snapshotForAI();
-
-      try {
-        const viewport = canvas!.getViewportSnapshot();
-        const result = await runAICommand(boardId, {
-          prompt: trimmedPrompt,
-          viewportCenter: {
-            x: viewport.center.x,
-            y: viewport.center.y,
-            widthPx: viewport.widthPx,
-            heightPx: viewport.heightPx,
-            topLeftWorld: viewport.topLeftWorld,
-            bottomRightWorld: viewport.bottomRightWorld,
-            scale: viewport.scale,
-          },
-          selectedObjectIds: canvas!.getSelectedIds(),
-          userId: user?.id || (user as Record<string, unknown>)?.sub || 'anonymous',
-        });
-
-        const r = result as { createdIds?: string[]; updatedIds?: string[]; deletedIds?: string[] };
-        const totalMutations = (r.createdIds?.length || 0) + (r.updatedIds?.length || 0) + (r.deletedIds?.length || 0);
-        if (totalMutations === 0) {
-          showBubble("Not sure what to do with that");
-        }
-
-        // Push a per-user AI undo entry using only IDs from this user's command
-        canvas?.undoRedoManager.pushAIUndoEntry(r);
-      } catch (err: unknown) {
-        showToast((err as Error)?.message || 'AI command failed');
-      } finally {
-        aiSubmitting = false;
-        // Fade out highlight immediately, let spin finish its current cycle
-        if (aiToggleBtn) {
-          aiToggleBtn.classList.add('ai-stopping');
-          const svg = aiToggleBtn.querySelector('svg');
-          const onCycleEnd = () => {
-            aiToggleBtn!.classList.remove('ai-processing', 'ai-stopping');
-            svg?.removeEventListener('animationiteration', onCycleEnd);
-          };
-          svg?.addEventListener('animationiteration', onCycleEnd);
-          // Safety fallback if the event doesn't fire (e.g. tab hidden)
-          setTimeout(onCycleEnd, 2000);
-        }
-      }
-    };
-
-    aiToggleBtn?.addEventListener('click', () => {
-      syncAiPanel(!aiPanelOpen);
-    });
-
-    aiBackdrop.addEventListener('click', () => {
-      syncAiPanel(false);
-    });
-
-    aiForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      await submitAICommand(aiInput.value);
-    });
-
-    window._boardKeyHandler = (e: KeyboardEvent) => {
-      const isInput = (e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA';
-      const isCommandToggle = (e.metaKey || e.ctrlKey) && e.key?.toLowerCase() === 'k';
-      if (isCommandToggle) {
-        e.preventDefault();
-        syncAiPanel(!aiPanelOpen);
-        return;
-      }
-
-      if (isInput) return;
-      const keyMap: Record<string, ToolName> = { v: 'select', s: 'sticky', t: 'text', f: 'frame' };
-      const tool = keyMap[e.key?.toLowerCase()];
-      if (tool && !e.metaKey && !e.ctrlKey) {
-        canvas!.setTool(tool);
-        toolbar.querySelectorAll('.toolbar-btn[data-tool]').forEach((b) => b.classList.remove('active'));
-        toolbar.querySelector(`[data-tool="${tool}"]`)?.classList.add('active');
-      }
-    };
-    window.addEventListener('keydown', window._boardKeyHandler);
-
-    // Fetch board data + click-to-rename
-    const boardNameEl = document.getElementById('board-name')!;
-    let currentBoardName = '';
-    let boardIsOwner = false;
-
-    getBoard(boardId).then((board) => {
-      const b = board as { name?: string; owner_id?: string; role?: string };
-      if (b?.name) {
-        currentBoardName = b.name;
-        boardNameEl.textContent = currentBoardName;
-      }
-      boardIsOwner = b?.role === 'owner' || b?.owner_id === user?.id;
-    }).catch(() => {});
-
-    boardNameEl.addEventListener('click', () => {
-      if (!currentBoardName) return;
-      const input = document.createElement('input');
-      input.className = 'board-name-input';
-      input.value = currentBoardName;
-      boardNameEl.textContent = '';
-      boardNameEl.appendChild(input);
-      input.focus();
-      input.select();
-
-      const finish = (save: boolean) => {
-        const newName = input.value.trim();
-        if (save && newName && newName !== currentBoardName) {
-          currentBoardName = newName;
-          renameBoard(boardId, newName).catch(() => {});
-        }
-        boardNameEl.textContent = currentBoardName;
-      };
-
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-        if (e.key === 'Escape') { e.preventDefault(); finish(false); input.remove(); }
-      });
-      input.addEventListener('blur', () => finish(true));
-    });
-
-    // Board Options button
-    document.getElementById('board-options-btn')!.addEventListener('click', () => {
-      openBoardOptionsModal({
-        boardId,
-        boardName: currentBoardName || 'Untitled Board',
-        isOwner: boardIsOwner,
-        onRename: (newName) => {
-          currentBoardName = newName;
-          boardNameEl.textContent = newName;
-        },
-        onClose: () => {},
-      });
-    });
-
+    // ── Zoom indicator ──
     const zoomIndicator = document.getElementById('zoom-indicator')!;
     zoomIndicator.style.cursor = 'pointer';
     zoomIndicator.title = 'Reset to 100%';
@@ -597,14 +380,18 @@ export const boardView = {
       clearInterval(zoomInterval);
       zoomInterval = null;
     }
-    aiPanelOpen = false;
-    aiSubmitting = false;
+    aiCommandBar?.destroy();
+    shapesDrawer?.destroy();
+    boardHeader?.destroy();
     colorPicker?.destroy();
     selectionToolbar?.destroy();
     presencePanel?.destroy();
     canvas?.destroy();
     cursorManager?.destroy();
     boardManager?.destroy();
+    aiCommandBar = null;
+    shapesDrawer = null;
+    boardHeader = null;
     colorPicker = null;
     selectionToolbar = null;
     presencePanel = null;

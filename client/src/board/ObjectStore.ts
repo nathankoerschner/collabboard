@@ -49,11 +49,35 @@ export class ObjectStore {
   objectsMap: Y.Map<Y.Map<unknown>>;
   zOrder: Y.Array<string>;
   transactionOrigin: string = 'local';
+  private _pendingContainmentIds: Set<string> | null = null;
 
   constructor(doc: Y.Doc) {
     this.doc = doc;
     this.objectsMap = doc.getMap('objects') as Y.Map<Y.Map<unknown>>;
     this.zOrder = doc.getArray('zOrder') as Y.Array<string>;
+  }
+
+  withOrigin(origin: string, fn: () => void): void {
+    const prev = this.transactionOrigin;
+    this.transactionOrigin = origin;
+    try { fn(); } finally { this.transactionOrigin = prev; }
+  }
+
+  private _deferContainment(id: string): void {
+    if (this._pendingContainmentIds) {
+      this._pendingContainmentIds.add(id);
+    } else {
+      this._syncContainmentAfterMutation(id);
+    }
+  }
+
+  private _flushContainment(): void {
+    const pending = this._pendingContainmentIds;
+    this._pendingContainmentIds = null;
+    if (!pending || pending.size === 0) return;
+    for (const id of pending) {
+      this._syncContainmentAfterMutation(id);
+    }
   }
 
   migrateV1Shapes(): void {
@@ -138,6 +162,7 @@ export class ObjectStore {
       }
     }
 
+    this._pendingContainmentIds = new Set();
     this.doc.transact(() => {
       for (const id of moveSet) {
         const obj = this.getObject(id);
@@ -146,9 +171,10 @@ export class ObjectStore {
       }
 
       for (const id of moveSet) {
-        this._syncContainmentAfterMutation(id);
+        this._deferContainment(id);
       }
     }, this.transactionOrigin);
+    this._flushContainment();
   }
 
   resizeObject(id: string, x: number, y: number, width: number, height: number): void {
@@ -190,6 +216,7 @@ export class ObjectStore {
       return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
     })();
 
+    this._pendingContainmentIds = new Set();
     this.doc.transact(() => {
       for (const obj of current) {
         if (obj.type === 'connector') continue;
@@ -206,9 +233,10 @@ export class ObjectStore {
       }
 
       for (const obj of current) {
-        this._syncContainmentAfterMutation(obj.id);
+        this._deferContainment(obj.id);
       }
     }, this.transactionOrigin);
+    this._flushContainment();
   }
 
   updateText(id: string, value: string): void {
@@ -440,15 +468,17 @@ export class ObjectStore {
       }
     }
 
+    this._pendingContainmentIds = new Set();
     this.doc.transact(() => {
       for (const obj of clones) {
         this._setObject(obj);
         this.zOrder.push([obj.id]);
       }
       for (const obj of clones) {
-        this._syncContainmentAfterMutation(obj.id);
+        this._deferContainment(obj.id);
       }
     }, this.transactionOrigin);
+    this._flushContainment();
 
     return clones.map((o) => o.id);
   }

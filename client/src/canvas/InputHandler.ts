@@ -517,16 +517,6 @@ export class InputHandler {
       this.callbacks.onEditObject?.(this.selectedIds[0]!);
       return;
     }
-
-    const keyMap: Record<string, ToolName> = {
-      v: 'select',
-      s: 'sticky',
-      t: 'text',
-      f: 'frame',
-    };
-    if (!e.metaKey && !e.ctrlKey && keyMap[key]) {
-      this.callbacks.onToolShortcut?.(keyMap[key]!);
-    }
   }
 
   private _handleKeyUp(e: KeyboardEvent): void {

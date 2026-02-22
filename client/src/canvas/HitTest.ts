@@ -3,6 +3,7 @@ import {
   getConnectorEndpoints,
   getFrameHitArea,
   getObjectCenter,
+  getOffscreenCtx,
   getPortList,
   getRotationHandlePoint,
   hitTestConnector,
@@ -14,17 +15,6 @@ import {
 import { SHAPE_DEFS } from '../board/ShapeDefs.js';
 
 const HANDLE_SIZE = 8;
-
-let _hitCtx: CanvasRenderingContext2D | null = null;
-function _getHitCtx(): CanvasRenderingContext2D {
-  if (!_hitCtx) {
-    const canvas = typeof OffscreenCanvas !== 'undefined'
-      ? new OffscreenCanvas(1, 1)
-      : document.createElement('canvas');
-    _hitCtx = canvas.getContext('2d') as CanvasRenderingContext2D;
-  }
-  return _hitCtx;
-}
 
 export function hitTestObjects(wx: number, wy: number, objects: BoardObject[]): { object: BoardObject; area: string } | null {
   const objectsById = new Map(objects.map((o) => [o.id, o]));
@@ -171,7 +161,7 @@ export function hitTestOuterRing(wx: number, wy: number, obj: BoardObject, ringP
       // For the outer check, sample the nearest point on the shape outline.
       // Use a stroke-width-based isPointInStroke: build a thick-stroked version.
       if (insideInner) return false;
-      const ctx = _getHitCtx();
+      const ctx = getOffscreenCtx();
       ctx.lineWidth = ring * 2;
       ctx.lineJoin = 'round';
       return ctx.isPointInStroke(innerPath, lx, ly);

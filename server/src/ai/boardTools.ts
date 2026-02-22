@@ -236,10 +236,11 @@ export class BoardToolRunner {
       ? this._nextPlacement(args.width as number, args.height as number)
       : { x: args.x as number, y: args.y as number };
 
-    const type = args.type === 'ellipse' ? 'ellipse' : 'rectangle';
-    const defaults = type === 'ellipse' ? { color: 'teal' } : { color: 'blue' };
+    const shapeKind = args.type === 'ellipse' ? 'ellipse' : 'rectangle';
+    const defaults = shapeKind === 'ellipse' ? { color: 'teal' } : { color: 'blue' };
     const obj = {
-      ...this._createBase(type, placement.x, placement.y, args.width as number, args.height as number),
+      ...this._createBase('shape', placement.x, placement.y, args.width as number, args.height as number),
+      shapeKind,
       color: sanitizeColor(args.color, defaults.color),
       strokeColor: '#64748b',
     };

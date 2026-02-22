@@ -103,19 +103,19 @@ export function pointInRotatedRect(px: number, py: number, obj: BoardObject): bo
 
 export function pointInPath2D(px: number, py: number, path: Path2D): boolean {
   // Use an offscreen canvas to test point in path
-  const c = _getTestCtx();
+  const c = getOffscreenCtx();
   return c.isPointInPath(path, px, py);
 }
 
-let _testCtx: CanvasRenderingContext2D | null = null;
-function _getTestCtx(): CanvasRenderingContext2D {
-  if (!_testCtx) {
+let _offscreenCtx: CanvasRenderingContext2D | null = null;
+export function getOffscreenCtx(): CanvasRenderingContext2D {
+  if (!_offscreenCtx) {
     const canvas = typeof OffscreenCanvas !== 'undefined'
       ? new OffscreenCanvas(1, 1)
       : document.createElement('canvas');
-    _testCtx = (canvas as HTMLCanvasElement).getContext('2d')!;
+    _offscreenCtx = (canvas as HTMLCanvasElement).getContext('2d')!;
   }
-  return _testCtx;
+  return _offscreenCtx;
 }
 
 export function pointInObject(px: number, py: number, obj: BoardObject): boolean {
@@ -338,7 +338,7 @@ function sampleShapeOutline(obj: BoardObject): Point[] {
   if (!def) return [];
 
   const path = def.path(obj.x, obj.y, obj.width, obj.height);
-  const ctx = _getTestCtx();
+  const ctx = getOffscreenCtx();
   const cx = obj.x + obj.width / 2;
   const cy = obj.y + obj.height / 2;
   const maxR = Math.sqrt(obj.width * obj.width + obj.height * obj.height);

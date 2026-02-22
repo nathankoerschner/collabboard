@@ -1,4 +1,3 @@
-import type { ChatCompletionTool } from 'openai/resources/chat/completions';
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import type { BoardToolRunner } from './boardTools.js';
@@ -60,11 +59,6 @@ export function sanitizeColor(value: unknown, fallback = 'black'): string {
   return (PALETTE_NAMES as readonly string[]).includes(value) ? value : fallback;
 }
 
-export function sanitizeStickyColor(value: unknown, fallback = 'yellow'): string {
-  if (typeof value !== 'string') return fallback;
-  return (STICKY_COLORS as readonly string[]).includes(value) ? value : fallback;
-}
-
 export function clampText(value: unknown, max = 2000, fallback = ''): string {
   if (typeof value !== 'string') return fallback;
   return value.slice(0, max);
@@ -74,381 +68,103 @@ function asObject(input: unknown): Record<string, unknown> {
   return input && typeof input === 'object' ? input as Record<string, unknown> : {};
 }
 
-export function validateToolArgs(toolName: string, rawArgs: unknown = {}): Record<string, unknown> {
-  const args = asObject(rawArgs);
-
-  if (toolName === 'createStickyNote') {
-    return {
-      text: clampText(args.text ?? '', 2000, ''),
-      x: typeof args.x === 'number' ? clampNumber(args.x, -100000, 100000, 0) : null,
-      y: typeof args.y === 'number' ? clampNumber(args.y, -100000, 100000, 0) : null,
-      width: clampNumber(args.width, 24, 2000, 150),
-      height: clampNumber(args.height, 24, 2000, 150),
-      color: sanitizeStickyColor(args.color, 'yellow'),
-    };
-  }
-
-  if (toolName === 'createShape') {
-    return {
-      type: (SHAPE_TYPES as readonly string[]).includes(args.type as string) ? args.type : 'rectangle',
-      x: typeof args.x === 'number' ? clampNumber(args.x, -100000, 100000, 0) : null,
-      y: typeof args.y === 'number' ? clampNumber(args.y, -100000, 100000, 0) : null,
-      width: clampNumber(args.width, 24, 2000, 200),
-      height: clampNumber(args.height, 24, 2000, 120),
-      color: sanitizeColor(args.color, args.type === 'ellipse' ? 'teal' : 'blue'),
-    };
-  }
-
-  if (toolName === 'createFrame') {
-    return {
-      title: clampText(args.title ?? 'Frame', 160, 'Frame'),
-      x: typeof args.x === 'number' ? clampNumber(args.x, -100000, 100000, 0) : null,
-      y: typeof args.y === 'number' ? clampNumber(args.y, -100000, 100000, 0) : null,
-      width: clampNumber(args.width, 120, 4000, 360),
-      height: clampNumber(args.height, 120, 4000, 240),
-    };
-  }
-
-  if (toolName === 'createConnector') {
-    const fp = args.fromPoint as Record<string, unknown> | null;
-    const tp = args.toPoint as Record<string, unknown> | null;
-    return {
-      fromId: typeof args.fromId === 'string' ? args.fromId : null,
-      toId: typeof args.toId === 'string' ? args.toId : null,
-      fromPoint: fp && typeof fp === 'object'
-        ? { x: clampNumber(fp.x, -100000, 100000, 0), y: clampNumber(fp.y, -100000, 100000, 0) }
-        : null,
-      toPoint: tp && typeof tp === 'object'
-        ? { x: clampNumber(tp.x, -100000, 100000, 0), y: clampNumber(tp.y, -100000, 100000, 0) }
-        : null,
-      fromT: typeof args.fromT === 'number' ? Math.max(0, Math.min(1, args.fromT)) : null,
-      toT: typeof args.toT === 'number' ? Math.max(0, Math.min(1, args.toT)) : null,
-      style: (CONNECTOR_STYLES as readonly string[]).includes(args.style as string) ? args.style : 'arrow',
-    };
-  }
-
-  if (toolName === 'createText') {
-    return {
-      content: clampText(args.content ?? '', 4000, ''),
-      x: typeof args.x === 'number' ? clampNumber(args.x, -100000, 100000, 0) : null,
-      y: typeof args.y === 'number' ? clampNumber(args.y, -100000, 100000, 0) : null,
-      width: clampNumber(args.width, 24, 2000, 220),
-      height: clampNumber(args.height, 24, 2000, 60),
-      fontSize: (TEXT_SIZES as readonly string[]).includes(args.fontSize as string) ? args.fontSize : 'medium',
-      bold: Boolean(args.bold),
-      italic: Boolean(args.italic),
-      color: sanitizeColor(args.color, 'black'),
-    };
-  }
-
-  if (toolName === 'moveObject') {
-    return {
-      objectId: typeof args.objectId === 'string' ? args.objectId : null,
-      x: clampNumber(args.x, -100000, 100000, 0),
-      y: clampNumber(args.y, -100000, 100000, 0),
-    };
-  }
-
-  if (toolName === 'resizeObject') {
-    return {
-      objectId: typeof args.objectId === 'string' ? args.objectId : null,
-      width: clampNumber(args.width, 24, 4000, 120),
-      height: clampNumber(args.height, 24, 4000, 80),
-    };
-  }
-
-  if (toolName === 'arrangeObjectsInGrid') {
-    const objectIds = Array.isArray(args.objectIds)
-      ? args.objectIds.filter((id): id is string => typeof id === 'string').slice(0, 500)
-      : [];
-    return {
-      objectIds,
-      columns: typeof args.columns === 'number' ? clampNumber(args.columns, 1, 24, 3) : null,
-      gapX: clampNumber(args.gapX, 0, 1000, 24),
-      gapY: clampNumber(args.gapY, 0, 1000, 24),
-      originX: typeof args.originX === 'number' ? clampNumber(args.originX, -100000, 100000, 0) : null,
-      originY: typeof args.originY === 'number' ? clampNumber(args.originY, -100000, 100000, 0) : null,
-    };
-  }
-
-  if (toolName === 'updateText') {
-    return {
-      objectId: typeof args.objectId === 'string' ? args.objectId : null,
-      newText: clampText(args.newText ?? '', 4000, ''),
-    };
-  }
-
-  if (toolName === 'changeColor') {
-    return {
-      objectId: typeof args.objectId === 'string' ? args.objectId : null,
-      color: sanitizeColor(args.color, 'black'),
-    };
-  }
-
-  if (toolName === 'rotateObject') {
-    return {
-      objectId: typeof args.objectId === 'string' ? args.objectId : null,
-      angleDegrees: normalizeAngle(args.angleDegrees),
-    };
-  }
-
-  if (toolName === 'deleteObject') {
-    return {
-      objectId: typeof args.objectId === 'string' ? args.objectId : null,
-    };
-  }
-
-  return {};
+// Coordinate helper: clamp if number, null otherwise
+function coordOrNull(v: unknown): number | null {
+  return typeof v === 'number' ? clampNumber(v, -100000, 100000, 0) : null;
+}
+function stringOrNull(v: unknown): string | null {
+  return typeof v === 'string' ? v : null;
 }
 
-export function toToolDefinitions(): ChatCompletionTool[] {
-  return [
-    {
-      type: 'function',
-      function: {
-        name: 'createStickyNote',
-        description: 'Create a sticky note. Default size is 150x150. Omit x/y to place near viewport center. When placing inside a frame, set x/y within the frame bounds so it becomes a child of that frame.',
-        parameters: {
-          type: 'object',
-          properties: {
-            text: { type: 'string' },
-            x: { type: 'number' },
-            y: { type: 'number' },
-            width: { type: 'number' },
-            height: { type: 'number' },
-            color: { type: 'string', enum: [...STICKY_COLORS] },
-          },
-          required: ['text'],
-          additionalProperties: false,
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'createShape',
-        description: 'Create a rectangle or ellipse. Default size is 200x120.',
-        parameters: {
-          type: 'object',
-          properties: {
-            type: { type: 'string', enum: [...SHAPE_TYPES] },
-            x: { type: 'number' },
-            y: { type: 'number' },
-            width: { type: 'number' },
-            height: { type: 'number' },
-            color: { type: 'string', enum: [...PALETTE_NAMES] },
-          },
-          required: ['type'],
-          additionalProperties: false,
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'createFrame',
-        description: 'Create a labeled section container. Use frames for categories/quadrants/columns where users will later add stickies. Width/height are the ACTUAL frame dimensions (outer bounds). Frame title bar height is 32px and should remain reserved for title/selection behavior. Deterministic sticky-fit sizing: size section frames to fit 6 default stickies in a 3x2 grid with fixed 24px gaps. With 150x150 stickies, required note area is 498x324 (3*150 + 2*24 by 2*150 + 24). Add fixed 24px inner padding on all sides of that note area and keep it below the title bar, so minimum ACTUAL section frame size is 546x404. For placement/containment, always use ACTUAL frame dimensions (not usable dimensions). Keep sibling spacing deterministic with fixed 24px gaps, fixed 24px parent padding, and left-to-right then top-to-bottom placement. For N equal columns use columnWidth = floor((parentUsableWidth - (N - 1) * 24) / N). Outside-frame wrap rule: include ALL generated section-fill frames when computing outer bounds. Account for the top title bar by reserving (32 + 24) at the top of inner content, then compute deterministic outer bounds from inner extents: left = minInnerX - 24, top = minInnerY - (32 + 24), right = maxInnerRight + 24, bottom = maxInnerBottom + 24.',
-        parameters: {
-          type: 'object',
-          properties: {
-            title: { type: 'string' },
-            x: { type: 'number' },
-            y: { type: 'number' },
-            width: { type: 'number' },
-            height: { type: 'number' },
-          },
-          additionalProperties: false,
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'createConnector',
-        description: 'Create connector between objects or points. Connectors have a default size of 0x0. Use fromT/toT (0-1) to attach at a specific perimeter position.',
-        parameters: {
-          type: 'object',
-          properties: {
-            fromId: { type: 'string' },
-            toId: { type: 'string' },
-            fromPoint: {
-              type: 'object',
-              properties: { x: { type: 'number' }, y: { type: 'number' } },
-              required: ['x', 'y'],
-              additionalProperties: false,
-            },
-            toPoint: {
-              type: 'object',
-              properties: { x: { type: 'number' }, y: { type: 'number' } },
-              required: ['x', 'y'],
-              additionalProperties: false,
-            },
-            fromT: { type: 'number', description: 'Perimeter position 0-1 on source object' },
-            toT: { type: 'number', description: 'Perimeter position 0-1 on target object' },
-            style: { type: 'string', enum: [...CONNECTOR_STYLES] },
-          },
-          additionalProperties: false,
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'createText',
-        description: 'Create a text object. Default size is 220x60.',
-        parameters: {
-          type: 'object',
-          properties: {
-            content: { type: 'string' },
-            x: { type: 'number' },
-            y: { type: 'number' },
-            width: { type: 'number' },
-            height: { type: 'number' },
-            fontSize: { type: 'string', enum: [...TEXT_SIZES] },
-            bold: { type: 'boolean' },
-            italic: { type: 'boolean' },
-            color: { type: 'string', enum: [...PALETTE_NAMES] },
-          },
-          required: ['content'],
-          additionalProperties: false,
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'moveObject',
-        description: 'Move an object to absolute x/y world coordinates.',
-        parameters: {
-          type: 'object',
-          properties: {
-            objectId: { type: 'string' },
-            x: { type: 'number' },
-            y: { type: 'number' },
-          },
-          required: ['objectId', 'x', 'y'],
-          additionalProperties: false,
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'arrangeObjectsInGrid',
-        description: 'Arrange existing objects into a deterministic grid. Use this for selected notes/items.',
-        parameters: {
-          type: 'object',
-          properties: {
-            objectIds: { type: 'array', items: { type: 'string' } },
-            columns: { type: 'number' },
-            gapX: { type: 'number' },
-            gapY: { type: 'number' },
-            originX: { type: 'number' },
-            originY: { type: 'number' },
-          },
-          required: ['objectIds'],
-          additionalProperties: false,
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'resizeObject',
-        description: 'Resize an object; keeps top-left anchored.',
-        parameters: {
-          type: 'object',
-          properties: {
-            objectId: { type: 'string' },
-            width: { type: 'number' },
-            height: { type: 'number' },
-          },
-          required: ['objectId', 'width', 'height'],
-          additionalProperties: false,
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'updateText',
-        description: 'Update text content on a sticky or text object.',
-        parameters: {
-          type: 'object',
-          properties: {
-            objectId: { type: 'string' },
-            newText: { type: 'string' },
-          },
-          required: ['objectId', 'newText'],
-          additionalProperties: false,
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'changeColor',
-        description: 'Update object color using palette token.',
-        parameters: {
-          type: 'object',
-          properties: {
-            objectId: { type: 'string' },
-            color: { type: 'string', enum: [...PALETTE_NAMES] },
-          },
-          required: ['objectId', 'color'],
-          additionalProperties: false,
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'rotateObject',
-        description: 'Rotate object by setting angle in degrees.',
-        parameters: {
-          type: 'object',
-          properties: {
-            objectId: { type: 'string' },
-            angleDegrees: { type: 'number' },
-          },
-          required: ['objectId', 'angleDegrees'],
-          additionalProperties: false,
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'deleteObject',
-        description: 'Delete an object by id.',
-        parameters: {
-          type: 'object',
-          properties: {
-            objectId: { type: 'string' },
-          },
-          required: ['objectId'],
-          additionalProperties: false,
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'getBoardState',
-        description: 'Read compact board state for planning tool calls.',
-        parameters: {
-          type: 'object',
-          properties: {},
-          additionalProperties: false,
-        },
-      },
-    },
-  ];
+// Post-processing rules per tool: apply clamping, defaults, sanitization
+const toolPostProcess: Record<string, (a: Record<string, unknown>) => Record<string, unknown>> = {
+  createStickyNote: (a) => ({
+    text: clampText(a.text ?? '', 2000, ''),
+    x: coordOrNull(a.x), y: coordOrNull(a.y),
+    width: clampNumber(a.width, 24, 2000, 150),
+    height: clampNumber(a.height, 24, 2000, 150),
+    color: sanitizeColor(a.color, 'yellow'),
+  }),
+  createShape: (a) => ({
+    type: (SHAPE_TYPES as readonly string[]).includes(a.type as string) ? a.type : 'rectangle',
+    x: coordOrNull(a.x), y: coordOrNull(a.y),
+    width: clampNumber(a.width, 24, 2000, 200),
+    height: clampNumber(a.height, 24, 2000, 120),
+    color: sanitizeColor(a.color, a.type === 'ellipse' ? 'teal' : 'blue'),
+  }),
+  createFrame: (a) => ({
+    title: clampText(a.title ?? 'Frame', 160, 'Frame'),
+    x: coordOrNull(a.x), y: coordOrNull(a.y),
+    width: clampNumber(a.width, 120, 4000, 360),
+    height: clampNumber(a.height, 120, 4000, 240),
+  }),
+  createConnector: (a) => {
+    const fp = a.fromPoint as Record<string, unknown> | null;
+    const tp = a.toPoint as Record<string, unknown> | null;
+    return {
+      fromId: stringOrNull(a.fromId), toId: stringOrNull(a.toId),
+      fromPoint: fp && typeof fp === 'object' ? { x: clampNumber(fp.x, -100000, 100000, 0), y: clampNumber(fp.y, -100000, 100000, 0) } : null,
+      toPoint: tp && typeof tp === 'object' ? { x: clampNumber(tp.x, -100000, 100000, 0), y: clampNumber(tp.y, -100000, 100000, 0) } : null,
+      fromT: typeof a.fromT === 'number' ? Math.max(0, Math.min(1, a.fromT)) : null,
+      toT: typeof a.toT === 'number' ? Math.max(0, Math.min(1, a.toT)) : null,
+      style: (CONNECTOR_STYLES as readonly string[]).includes(a.style as string) ? a.style : 'arrow',
+    };
+  },
+  createText: (a) => ({
+    content: clampText(a.content ?? '', 4000, ''),
+    x: coordOrNull(a.x), y: coordOrNull(a.y),
+    width: clampNumber(a.width, 24, 2000, 220),
+    height: clampNumber(a.height, 24, 2000, 60),
+    fontSize: (TEXT_SIZES as readonly string[]).includes(a.fontSize as string) ? a.fontSize : 'medium',
+    bold: Boolean(a.bold), italic: Boolean(a.italic),
+    color: sanitizeColor(a.color, 'black'),
+  }),
+  moveObject: (a) => ({
+    objectId: stringOrNull(a.objectId),
+    x: clampNumber(a.x, -100000, 100000, 0),
+    y: clampNumber(a.y, -100000, 100000, 0),
+  }),
+  resizeObject: (a) => ({
+    objectId: stringOrNull(a.objectId),
+    width: clampNumber(a.width, 24, 4000, 120),
+    height: clampNumber(a.height, 24, 4000, 80),
+  }),
+  arrangeObjectsInGrid: (a) => ({
+    objectIds: Array.isArray(a.objectIds)
+      ? a.objectIds.filter((id): id is string => typeof id === 'string').slice(0, 500) : [],
+    columns: typeof a.columns === 'number' ? clampNumber(a.columns, 1, 24, 3) : null,
+    gapX: clampNumber(a.gapX, 0, 1000, 24),
+    gapY: clampNumber(a.gapY, 0, 1000, 24),
+    originX: typeof a.originX === 'number' ? clampNumber(a.originX, -100000, 100000, 0) : null,
+    originY: typeof a.originY === 'number' ? clampNumber(a.originY, -100000, 100000, 0) : null,
+  }),
+  updateText: (a) => ({
+    objectId: stringOrNull(a.objectId),
+    newText: clampText(a.newText ?? '', 4000, ''),
+  }),
+  changeColor: (a) => ({
+    objectId: stringOrNull(a.objectId),
+    color: sanitizeColor(a.color, 'black'),
+  }),
+  rotateObject: (a) => ({
+    objectId: stringOrNull(a.objectId),
+    angleDegrees: normalizeAngle(a.angleDegrees),
+  }),
+  deleteObject: (a) => ({
+    objectId: stringOrNull(a.objectId),
+  }),
+};
+
+export function validateToolArgs(toolName: string, rawArgs: unknown = {}): Record<string, unknown> {
+  const args = asObject(rawArgs);
+  const postProcess = toolPostProcess[toolName];
+  if (!postProcess) return {};
+  return postProcess(args);
 }
 
 const paletteEnum = z.enum([...PALETTE_NAMES] as [string, ...string[]]);
 
-const langChainSchemas: Record<string, { description: string; schema: z.ZodObject<z.ZodRawShape> }> = {
+export const langChainSchemas: Record<string, { description: string; schema: z.ZodObject<z.ZodRawShape> }> = {
   createStickyNote: {
     description: 'Create a sticky note. Default size is 150x150. Omit x/y to place near viewport center. When placing inside a frame, set x/y within the frame bounds so it becomes a child of that frame.',
     schema: z.object({

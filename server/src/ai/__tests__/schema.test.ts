@@ -91,20 +91,19 @@ describe('sanitizeColor', () => {
     ['orange', 'orange'],
     ['red', 'red'],
     ['teal', 'teal'],
-    ['gray', 'gray'],
-    ['white', 'white'],
+    ['black', 'black'],
   ])('valid palette name %s returns itself', (input, expected) => {
     expect(sanitizeColor(input)).toBe(expected);
   });
 
   test('invalid string returns fallback', () => {
-    expect(sanitizeColor('magenta')).toBe('gray');
-    expect(sanitizeColor('#ff0000')).toBe('gray');
+    expect(sanitizeColor('magenta')).toBe('black');
+    expect(sanitizeColor('#ff0000')).toBe('black');
   });
 
   test('non-string returns fallback', () => {
-    expect(sanitizeColor(42 as any)).toBe('gray');
-    expect(sanitizeColor(null as any)).toBe('gray');
+    expect(sanitizeColor(42 as any)).toBe('black');
+    expect(sanitizeColor(null as any)).toBe('black');
   });
 
   test('custom fallback', () => {
@@ -303,9 +302,9 @@ describe('validateToolArgs', () => {
       expect(result.color).toBe('red');
     });
 
-    test('invalid color falls back to gray', () => {
+    test('invalid color falls back to black', () => {
       const result = validateToolArgs('changeColor', { objectId: 'abc', color: 'neon' });
-      expect(result.color).toBe('gray');
+      expect(result.color).toBe('black');
     });
   });
 
