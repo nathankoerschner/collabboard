@@ -10,12 +10,12 @@ export type ShapeKind =
   | 'cross' | 'heart' | 'cloud' | 'callout'
   | 'parallelogram' | 'trapezoid' | 'cylinder' | 'document';
 
-export type ObjectType = 'sticky' | 'rectangle' | 'ellipse' | 'text' | 'connector' | 'frame' | 'shape';
+export type ObjectType = 'sticky' | 'rectangle' | 'ellipse' | 'text' | 'connector' | 'frame' | 'shape' | 'table';
 export type ConnectorStyle = 'line' | 'arrow';
 export type TextSize = 'small' | 'medium' | 'large';
 export type PortName = 'n' | 'e' | 's' | 'w' | 'nw' | 'ne' | 'se' | 'sw';
 export type HandleName = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
-export type ToolName = 'select' | 'sticky' | 'rectangle' | 'ellipse' | 'text' | 'frame' | 'shape';
+export type ToolName = 'select' | 'sticky' | 'rectangle' | 'ellipse' | 'text' | 'frame' | 'shape' | 'table';
 
 export interface Point {
   x: number;
@@ -100,7 +100,18 @@ export interface ShapeObject extends BaseObject {
   strokeColor: string;
 }
 
-export type BoardObject = StickyNote | RectangleObject | EllipseObject | TextObject | Connector | Frame | ShapeObject;
+export interface TableObject extends BaseObject {
+  type: 'table';
+  title: string;
+  columns: string[];
+  rows: string[];
+  columnWidths: Record<string, number>;
+  rowHeights: Record<string, number>;
+  cells: Record<string, string>;
+  color: string;
+}
+
+export type BoardObject = StickyNote | RectangleObject | EllipseObject | TextObject | Connector | Frame | ShapeObject | TableObject;
 
 // ── Port ──
 

@@ -116,17 +116,20 @@ describe('hitTestObjects', () => {
 describe('hitTestHandle', () => {
   test('hit nw handle', () => {
     const obj = makeRect({ x: 0, y: 0, width: 100, height: 100 });
-    expect(hitTestHandle(0, 0, obj, 1)).toBe('nw');
+    // With 18px padding at scale=1, nw handle is at (-18, -18)
+    expect(hitTestHandle(-18, -18, obj, 1)).toBe('nw');
   });
 
   test('hit se handle', () => {
     const obj = makeRect({ x: 0, y: 0, width: 100, height: 100 });
-    expect(hitTestHandle(100, 100, obj, 1)).toBe('se');
+    // se handle is at (118, 118)
+    expect(hitTestHandle(118, 118, obj, 1)).toBe('se');
   });
 
   test('hit n handle', () => {
     const obj = makeRect({ x: 0, y: 0, width: 100, height: 100 });
-    expect(hitTestHandle(50, 0, obj, 1)).toBe('n');
+    // n handle is at (50, -18)
+    expect(hitTestHandle(50, -18, obj, 1)).toBe('n');
   });
 
   test('miss returns null', () => {
@@ -141,27 +144,28 @@ describe('hitTestHandle', () => {
 
   test('respects scale factor', () => {
     const obj = makeRect({ x: 0, y: 0, width: 100, height: 100 });
-    // At scale 0.5, handle hit area is larger in world space
-    expect(hitTestHandle(0, 0, obj, 0.5)).toBe('nw');
+    // At scale 0.5, padding=36 world units, nw handle at (-36, -36)
+    expect(hitTestHandle(-36, -36, obj, 0.5)).toBe('nw');
   });
 });
 
 describe('hitTestRotationHandle', () => {
   test('inside radius returns true', () => {
     const bounds = { x: 0, y: 0, width: 100, height: 100 };
-    // Rotation handle is at (50, -28)
-    expect(hitTestRotationHandle(50, -28, bounds, 1)).toBe(true);
+    // Padded bounds at scale=1: x=-18, y=-18, w=136, h=136 → handle at (-46, 50)
+    expect(hitTestRotationHandle(-46, 50, bounds, 1)).toBe(true);
   });
 
   test('outside radius returns false', () => {
     const bounds = { x: 0, y: 0, width: 100, height: 100 };
-    expect(hitTestRotationHandle(50, -50, bounds, 1)).toBe(false);
+    expect(hitTestRotationHandle(-46, 80, bounds, 1)).toBe(false);
   });
 
   test('respects scale', () => {
     const bounds = { x: 0, y: 0, width: 100, height: 100 };
-    // At smaller scale, radius in world coords is larger
-    expect(hitTestRotationHandle(50, -28 + 15, bounds, 0.5)).toBe(true);
+    // At scale=0.5, padding=36 world units → padded x=-36, handle at (-64, 50)
+    // radius = 10/0.5 = 20 world units, so point 15 away should hit
+    expect(hitTestRotationHandle(-64, 50 + 15, bounds, 0.5)).toBe(true);
   });
 });
 

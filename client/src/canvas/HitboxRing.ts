@@ -67,7 +67,7 @@ export class HitboxRing {
   private _hitTestTopmost(wx: number, wy: number, objects: BoardObject[], scale: number): BoardObject | null {
     for (let i = objects.length - 1; i >= 0; i--) {
       const obj = objects[i]!;
-      if (obj.type === 'connector' || obj.type === 'frame' || obj.type === 'text') continue;
+      if (obj.type === 'connector' || obj.type === 'frame' || obj.type === 'text' || obj.type === 'table') continue;
       if (_hitTestOuterRing(wx, wy, obj, RING_PX, scale)) return obj;
     }
     return null;

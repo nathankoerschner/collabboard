@@ -32,6 +32,7 @@ const UNIVERSAL_KEYS = [
   'text', 'color', 'content', 'style', 'strokeColor', 'shapeKind',
   'fromId', 'toId', 'fromPort', 'toPort', 'fromPoint', 'toPoint', 'fromT', 'toT', 'points',
   'title', 'children',
+  'columns', 'rows', 'columnWidths', 'rowHeights', 'cells',
 ] as const;
 
 function valuesEqual(a: unknown, b: unknown): boolean {
@@ -558,6 +559,16 @@ export class ObjectStore {
       obj.shapeKind = 'rectangle';
       obj.color = 'blue';
       obj.strokeColor = '#64748b';
+    } else if (type === 'table') {
+      const cols = ['c1', 'c2', 'c3'];
+      const rowIds = ['r1', 'r2', 'r3'];
+      obj.title = 'Table';
+      obj.columns = cols;
+      obj.rows = rowIds;
+      obj.columnWidths = { c1: 120, c2: 120, c3: 120 };
+      obj.rowHeights = { r1: 32, r2: 32, r3: 32 };
+      obj.cells = {};
+      obj.color = '#e2e8f0';
     }
 
     // Apply overrides
@@ -719,6 +730,89 @@ export class ObjectStore {
         }
       }
     }
+  }
+
+  updateTableCell(tableId: string, rowId: string, colId: string, text: string): void {
+    const obj = this.getObject(tableId);
+    if (!obj || obj.type !== 'table') return;
+    const table = obj as import('../types.js').TableObject;
+    const cells = { ...(table.cells || {}), [`${rowId}:${colId}`]: text };
+    this.updateObject(tableId, { cells });
+  }
+
+  updateTableRowHeight(tableId: string, rowId: string, height: number): void {
+    const obj = this.getObject(tableId);
+    if (!obj || obj.type !== 'table') return;
+    const table = obj as import('../types.js').TableObject;
+    const rowHeights = { ...(table.rowHeights || {}), [rowId]: height };
+    const titleHeight = 28;
+    let totalHeight = titleHeight;
+    for (const rid of table.rows || []) {
+      totalHeight += rowHeights[rid] || 32;
+    }
+    this.updateObject(tableId, { rowHeights, height: totalHeight });
+  }
+
+  addTableColumn(id: string): void {
+    const obj = this.getObject(id);
+    if (!obj || obj.type !== 'table') return;
+    const table = obj as import('../types.js').TableObject;
+    const colId = 'c' + nanoid(6);
+    const columns = [...(table.columns || []), colId];
+    const columnWidths = { ...(table.columnWidths || {}), [colId]: 120 };
+    const width = columns.reduce((sum, c) => sum + (columnWidths[c] || 120), 0);
+    this.updateObject(id, { columns, columnWidths, width });
+  }
+
+  deleteTableColumn(id: string, colId: string): void {
+    const obj = this.getObject(id);
+    if (!obj || obj.type !== 'table') return;
+    const table = obj as import('../types.js').TableObject;
+    if ((table.columns || []).length <= 1) return;
+    const columns = (table.columns || []).filter((c) => c !== colId);
+    const columnWidths = { ...(table.columnWidths || {}) };
+    delete columnWidths[colId];
+    const cells = { ...(table.cells || {}) };
+    for (const rowId of table.rows || []) {
+      delete cells[`${rowId}:${colId}`];
+    }
+    const width = columns.reduce((sum, c) => sum + (columnWidths[c] || 120), 0);
+    this.updateObject(id, { columns, columnWidths, cells, width });
+  }
+
+  addTableRow(id: string): void {
+    const obj = this.getObject(id);
+    if (!obj || obj.type !== 'table') return;
+    const table = obj as import('../types.js').TableObject;
+    const rowId = 'r' + nanoid(6);
+    const rows = [...(table.rows || []), rowId];
+    const rowHeights = { ...(table.rowHeights || {}), [rowId]: 32 };
+    const titleHeight = 28;
+    let totalHeight = titleHeight;
+    for (const rid of rows) {
+      totalHeight += rowHeights[rid] || 32;
+    }
+    this.updateObject(id, { rows, rowHeights, height: totalHeight });
+  }
+
+  deleteTableRow(id: string, rowId: string): void {
+    const obj = this.getObject(id);
+    if (!obj || obj.type !== 'table') return;
+    const table = obj as import('../types.js').TableObject;
+    if ((table.rows || []).length <= 1) return;
+    const rows = (table.rows || []).filter((r) => r !== rowId);
+    const cells = { ...(table.cells || {}) };
+    for (const colId of table.columns || []) {
+      delete cells[`${rowId}:${colId}`];
+    }
+    const rowHeights = { ...(table.rowHeights || {}) };
+    delete rowHeights[rowId];
+    const titleHeight = 28;
+    let totalHeight = titleHeight;
+    for (const rid of rows) {
+      totalHeight += rowHeights[rid] || 32;
+    }
+    this.updateObject(id, { rows, cells, rowHeights, height: totalHeight });
   }
 
   getAttachableAtPoint(wx: number, wy: number, excludeIds: string | string[] | null = null, _scale = 1): AttachResult | null {

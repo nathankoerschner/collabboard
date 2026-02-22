@@ -5,6 +5,7 @@ import { pointInObject } from './Geometry.js';
 import { Renderer } from './Renderer.js';
 import { InputHandler } from './InputHandler.js';
 import { TextEditor } from './TextEditor.js';
+import { TableControls } from './TableControls.js';
 import { ObjectStore } from '../board/ObjectStore.js';
 import { UndoRedoManager } from '../board/UndoRedoManager.js';
 import { CursorManager } from '../board/CursorManager.js';
@@ -24,6 +25,7 @@ export class Canvas {
   reduceMotion: boolean;
   renderer: Renderer;
   textEditor: TextEditor;
+  tableControls!: TableControls;
   inputHandler: InputHandler;
   undoRedoManager!: UndoRedoManager;
   resizeObserver: ResizeObserver;
@@ -60,10 +62,14 @@ export class Canvas {
       },
     });
 
+    this.tableControls = new TableControls(canvasEl.parentElement!, this.camera, this.objectStore);
+
     this.inputHandler = new InputHandler(canvasEl, this.camera, () => this.objectStore.getAll(), {
       onSelectionChange: (ids) => {
         this.selectedIds = ids;
         this.inputHandler.setSelection(ids);
+        const isTextEditing = !!this.textEditor.getEditingId();
+        this.tableControls.update(ids, isTextEditing);
         this.callbacks.onSelectionChange?.(ids);
       },
       onMoveSelection: (ids, dx, dy) => {
@@ -167,7 +173,48 @@ export class Canvas {
         const obj = objects[i]!;
         if ((obj.type === 'sticky' || obj.type === 'text') && this._pointInObjectAabb(wx, wy, obj)) {
           this.textEditor.startEditing(obj);
-          break;
+          return;
+        }
+        if (obj.type === 'table' && this._pointInObjectAabb(wx, wy, obj)) {
+          const table = obj as import('../types.js').TableObject;
+          const titleHeight = 28;
+          const localX = wx - obj.x;
+          const localY = wy - obj.y;
+          if (localY <= titleHeight) {
+            this.tableControls.startTitleEditing(obj.id);
+            return;
+          }
+
+          // Determine which row was clicked
+          const rowHeights = table.rowHeights || {};
+          let rowY = titleHeight;
+          let hitRow: string | null = null;
+          for (const rid of table.rows || []) {
+            const rh = rowHeights[rid] || 32;
+            if (localY >= rowY && localY < rowY + rh) {
+              hitRow = rid;
+              break;
+            }
+            rowY += rh;
+          }
+
+          // Determine which column was clicked
+          const colWidths = table.columnWidths || {};
+          let colX = 0;
+          let hitCol: string | null = null;
+          for (const cid of table.columns || []) {
+            const cw = colWidths[cid] || 120;
+            if (localX >= colX && localX < colX + cw) {
+              hitCol = cid;
+              break;
+            }
+            colX += cw;
+          }
+
+          if (hitRow && hitCol) {
+            this.tableControls.startCellEditing(obj.id, hitRow, hitCol);
+          }
+          return;
         }
       }
     });
@@ -216,6 +263,8 @@ export class Canvas {
     const objects = this.objectStore.getAll();
     const byId = new Map(objects.map((o) => [o.id, o]));
     const editingId = this.textEditor.getEditingId();
+    this.renderer.editingCellKey = this.tableControls.getEditingCellKey();
+    this.renderer.editingTitleTableId = this.tableControls.getEditingTitleTableId();
     this._trackAIReveals(objects);
 
     for (const obj of objects) {
@@ -334,6 +383,7 @@ export class Canvas {
     if (this.animFrameId) cancelAnimationFrame(this.animFrameId);
     this.resizeObserver.disconnect();
     this.inputHandler.destroy();
+    this.tableControls.destroy();
     this.textEditor.destroy();
     this.undoRedoManager.destroy();
   }

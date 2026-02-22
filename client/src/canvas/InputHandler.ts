@@ -4,6 +4,7 @@ import {
   hitTestHandle,
   hitTestObjects,
   hitTestRotationHandle,
+  selectionPadding,
 } from './HitTest.js';
 import { getConnectorEndpoints, getObjectAABB, getSelectionBounds, nearestPerimeterT, pointInObject } from './Geometry.js';
 import { Camera } from './Camera.js';
@@ -152,7 +153,9 @@ export class InputHandler {
     const selected = objects.filter((o) => this.selectedIds.includes(o.id));
     const selectionBounds = selected.length ? getSelectionBounds(selected) : null;
 
-    if (selectionBounds && hitTestRotationHandle(wx, wy, selectionBounds, this.camera.scale)) {
+    const singleTable = selected.length === 1 && selected[0]!.type === 'table';
+    const rotPad = selected.length === 1 ? selectionPadding(selected[0]!, this.camera.scale) : undefined;
+    if (!singleTable && selectionBounds && hitTestRotationHandle(wx, wy, selectionBounds, this.camera.scale, rotPad)) {
       this.dragging = true;
       this.dragType = 'rotate';
       this.rotationPivot = {
@@ -222,6 +225,7 @@ export class InputHandler {
     if (this.tool === 'ellipse') return this.callbacks.onCreate?.('ellipse', wx - 100, wy - 60, 200, 120);
     if (this.tool === 'text') return this.callbacks.onCreate?.('text', wx - 90, wy - 24, 180, 48);
     if (this.tool === 'frame') return this.callbacks.onCreate?.('frame', wx - 180, wy - 120, 360, 240);
+    if (this.tool === 'table') return this.callbacks.onCreate?.('table', wx - 180, wy - 64, 360, 128);
     return undefined;
   }
 
@@ -494,6 +498,11 @@ export class InputHandler {
     if ((e.metaKey || e.ctrlKey) && key === 'v') {
       e.preventDefault();
       this.callbacks.onPaste?.();
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
       return;
     }
 

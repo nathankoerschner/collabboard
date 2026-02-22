@@ -1,5 +1,5 @@
 import type { BoardObject, Bounds, CursorData, Palette, RevealState, ShapeObject } from '../types.js';
-import { getHandlePositions, HANDLE_SIZE } from './HitTest.js';
+import { getHandlePositions, HANDLE_SIZE, SELECTION_PADDING, selectionPadding } from './HitTest.js';
 import {
   getConnectorEndpoints,
   getObjectAABB,
@@ -66,6 +66,7 @@ export class Renderer {
     if (obj.type === 'text') return this._finishReveal(ctx, () => this.drawText(ctx, obj, skipText), reveal);
     if (obj.type === 'connector') return this._finishReveal(ctx, () => this.drawConnector(ctx, obj, objectsById), reveal);
     if (obj.type === 'frame') return this._finishReveal(ctx, () => this.drawFrame(ctx, obj), reveal);
+    if (obj.type === 'table') return this._finishReveal(ctx, () => this.drawTable(ctx, obj), reveal);
 
     if (reveal) ctx.restore();
   }
@@ -185,6 +186,110 @@ export class Renderer {
     });
   }
 
+  /** Track the cell key currently being edited so we can skip drawing its text. */
+  editingCellKey: string | null = null;
+  /** Track which table's title is being edited so we skip drawing it. */
+  editingTitleTableId: string | null = null;
+
+  drawTable(ctx: CanvasRenderingContext2D, obj: BoardObject): void {
+    const table = obj as import('../types.js').TableObject;
+    const titleHeight = 28;
+    const borderColor = this.color(table.color, '#e2e8f0');
+    const rows = table.rows || [];
+    const cols = table.columns || [];
+    const colWidths = table.columnWidths || {};
+    const rowHeights = table.rowHeights || {};
+    const cellFont = '400 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+
+    this._drawRotatedBox(ctx, obj, (lx, ly, w, h) => {
+      // Background
+      ctx.fillStyle = '#ffffff';
+      this.roundRect(ctx, lx, ly, w, h, 6);
+      ctx.fill();
+
+      // Border
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = 2;
+      this.roundRect(ctx, lx, ly, w, h, 6);
+      ctx.stroke();
+
+      // Title bar
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(lx + 6, ly);
+      ctx.lineTo(lx + w - 6, ly);
+      ctx.quadraticCurveTo(lx + w, ly, lx + w, ly + 6);
+      ctx.lineTo(lx + w, ly + titleHeight);
+      ctx.lineTo(lx, ly + titleHeight);
+      ctx.lineTo(lx, ly + 6);
+      ctx.quadraticCurveTo(lx, ly, lx + 6, ly);
+      ctx.closePath();
+      ctx.fillStyle = borderColor;
+      ctx.fill();
+      ctx.restore();
+
+      // Title text
+      ctx.fillStyle = '#1e293b';
+      ctx.font = '600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      if (this.editingTitleTableId !== obj.id) {
+        ctx.fillText(table.title || 'Table', lx + 8, ly + titleHeight / 2);
+      }
+
+      // Column lines
+      let cx = lx;
+      for (let i = 0; i < cols.length - 1; i++) {
+        cx += colWidths[cols[i]!] || (w / cols.length);
+        ctx.beginPath();
+        ctx.moveTo(cx, ly + titleHeight);
+        ctx.lineTo(cx, ly + h);
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      // Row lines — use per-row heights
+      let rowY = ly + titleHeight;
+      const rowYOffsets: number[] = [];
+      for (let ri = 0; ri < rows.length; ri++) {
+        rowYOffsets.push(rowY);
+        const rh = rowHeights[rows[ri]!] || 32;
+        rowY += rh;
+        if (ri > 0) {
+          ctx.beginPath();
+          ctx.moveTo(lx, rowYOffsets[ri]!);
+          ctx.lineTo(lx + w, rowYOffsets[ri]!);
+          ctx.strokeStyle = borderColor;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
+
+      // Cell text — wrapped
+      const cells = table.cells || {};
+      const editingKey = this.editingCellKey;
+      for (let ri = 0; ri < rows.length; ri++) {
+        const rh = rowHeights[rows[ri]!] || 32;
+        let colX = lx;
+        for (let ci = 0; ci < cols.length; ci++) {
+          const cw = colWidths[cols[ci]!] || (w / cols.length);
+          const key = `${rows[ri]}:${cols[ci]}`;
+          const text = cells[key];
+          if (text && key !== editingKey) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(colX + 1, rowYOffsets[ri]! + 1, cw - 2, rh - 2);
+            ctx.clip();
+            this._drawWrappedText(ctx, text, colX + 6, rowYOffsets[ri]! + 4, cw - 12, 14, cellFont, '#334155');
+            ctx.restore();
+          }
+          colX += cw;
+        }
+      }
+    });
+  }
+
   drawConnector(ctx: CanvasRenderingContext2D, obj: BoardObject, objectsById: Map<string, BoardObject>): void {
     const conn = obj as import('../types.js').Connector;
     const { start, end } = getConnectorEndpoints(obj, objectsById);
@@ -246,14 +351,17 @@ export class Renderer {
       }
     }
 
+    const pad = SELECTION_PADDING / camera.scale;
+    const padded = { x: bounds.x - pad, y: bounds.y - pad, width: bounds.width + pad * 2, height: bounds.height + pad * 2 };
+
     ctx.save();
     ctx.strokeStyle = '#2563eb';
     ctx.lineWidth = 1.5 / camera.scale;
     ctx.setLineDash([6 / camera.scale, 5 / camera.scale]);
-    ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+    ctx.strokeRect(padded.x, padded.y, padded.width, padded.height);
     ctx.setLineDash([]);
 
-    const rh = getRotationHandlePoint(bounds);
+    const rh = getRotationHandlePoint(padded);
     this._drawRotationIcon(ctx, rh.x, rh.y, camera.scale);
 
     ctx.restore();
@@ -265,29 +373,36 @@ export class Renderer {
       return;
     }
 
-    const size = HANDLE_SIZE / camera.scale;
-    const handles = getHandlePositions(obj);
+    const pad = selectionPadding(obj, camera.scale);
 
     ctx.save();
-    for (const [, hx, hy] of handles) {
-      ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = '#2563eb';
-      ctx.lineWidth = 1.5 / camera.scale;
-      ctx.beginPath();
-      ctx.arc(hx, hy, size / 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+
+    if (obj.type !== 'table') {
+      const size = HANDLE_SIZE / camera.scale;
+      const handles = getHandlePositions(obj, pad);
+      for (const [, hx, hy] of handles) {
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 1.5 / camera.scale;
+        ctx.beginPath();
+        ctx.arc(hx, hy, size / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
     }
 
     const box = getObjectAABB(obj);
+    const paddedBox = { x: box.x - pad, y: box.y - pad, width: box.width + pad * 2, height: box.height + pad * 2 };
     ctx.strokeStyle = '#2563eb';
     ctx.lineWidth = 1.5 / camera.scale;
     ctx.setLineDash([5 / camera.scale, 4 / camera.scale]);
-    ctx.strokeRect(box.x, box.y, box.width, box.height);
+    ctx.strokeRect(paddedBox.x, paddedBox.y, paddedBox.width, paddedBox.height);
     ctx.setLineDash([]);
 
-    const rotHandle = getRotationHandlePoint(box);
-    this._drawRotationIcon(ctx, rotHandle.x, rotHandle.y, camera.scale);
+    if (obj.type !== 'table') {
+      const rotHandle = getRotationHandlePoint(paddedBox);
+      this._drawRotationIcon(ctx, rotHandle.x, rotHandle.y, camera.scale);
+    }
 
     ctx.restore();
   }

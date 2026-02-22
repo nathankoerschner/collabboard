@@ -601,3 +601,90 @@
 .color-picker-popover .swatch.active.light::after {
   background: rgba(0, 0, 0, 0.2);
 }
+
+/* ── Table Controls ── */
+
+.table-controls {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 29;
+  pointer-events: none;
+}
+
+.table-add-btn,
+.table-delete-btn {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.table-add-btn {
+  background: #ffffff;
+  color: #2563eb;
+}
+
+.table-add-btn:hover {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.table-delete-btn {
+  background: #ffffff;
+  color: #94a3b8;
+}
+
+.table-delete-btn:hover {
+  background: #ef4444;
+  color: #ffffff;
+  border-color: #ef4444;
+}
+
+/* ── Table Cell Editor ── */
+
+.table-cell-editor {
+  position: absolute;
+  z-index: 40;
+  background: rgba(255, 255, 255, 0.95);
+  border: 2px solid #2563eb;
+  border-radius: 0;
+  padding: 3px 5px;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 400;
+  color: #334155;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  box-sizing: border-box;
+  line-height: 1.27;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.table-title-editor {
+  position: absolute;
+  z-index: 40;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid #2563eb;
+  padding: 0 7px;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 600;
+  color: #1e293b;
+  outline: none;
+  box-sizing: border-box;
+}
