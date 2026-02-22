@@ -322,6 +322,64 @@ export class BoardToolRunner {
     return { id: obj.id as string };
   }
 
+  createTable(raw: Record<string, unknown> = {}): { id: string } {
+    const args = validateToolArgs('createTable', raw);
+    const headers = args.headers as string[];
+    const data = args.data as string[][];
+    const numCols = args.numColumns as number;
+    const numRows = args.numRows as number;
+
+    // Generate column and row IDs
+    const columns: string[] = [];
+    for (let i = 0; i < numCols; i++) columns.push(`c${i + 1}`);
+
+    // Total rows = 1 header row + data rows (or numRows if no data)
+    const totalRows = data.length ? data.length + (headers.length ? 1 : 0) : numRows;
+    const rows: string[] = [];
+    for (let i = 0; i < totalRows; i++) rows.push(`r${i + 1}`);
+
+    const columnWidths: Record<string, number> = {};
+    for (const col of columns) columnWidths[col] = 120;
+
+    const rowHeights: Record<string, number> = {};
+    for (const row of rows) rowHeights[row] = 32;
+
+    // Build cells from headers + data
+    const cells: Record<string, string> = {};
+    if (headers.length) {
+      for (let c = 0; c < Math.min(headers.length, numCols); c++) {
+        if (headers[c]) cells[`r1:${columns[c]}`] = headers[c]!;
+      }
+    }
+    const dataStartRow = headers.length ? 1 : 0;
+    for (let r = 0; r < data.length; r++) {
+      const row = data[r]!;
+      for (let c = 0; c < Math.min(row.length, numCols); c++) {
+        if (row[c]) cells[`${rows[r + dataStartRow]}:${columns[c]}`] = row[c]!;
+      }
+    }
+
+    const width = numCols * 120;
+    const height = 32 + totalRows * 32; // title bar + rows
+    const placement = args.x == null || args.y == null
+      ? this._nextPlacement(width, height)
+      : { x: args.x as number, y: args.y as number };
+
+    const obj = {
+      ...this._createBase('table', placement.x, placement.y, width, height),
+      title: args.title as string,
+      columns,
+      rows,
+      columnWidths,
+      rowHeights,
+      cells,
+      color: args.color as string,
+    };
+
+    this._setObject(obj, { created: true });
+    return { id: obj.id };
+  }
+
   moveObject(raw: Record<string, unknown> = {}): { ok: boolean; error?: string } {
     const args = validateToolArgs('moveObject', raw);
     const obj = this.objects.get(args.objectId as string);
@@ -340,7 +398,7 @@ export class BoardToolRunner {
     const movable = uniqueIds
       .map((id) => this.objects.get(id))
       .filter((obj): obj is Record<string, unknown> => !!obj && obj.type !== 'connector')
-      .filter((obj) => ['sticky', 'text', 'rectangle', 'ellipse', 'frame'].includes(String(obj.type)));
+      .filter((obj) => ['sticky', 'text', 'rectangle', 'ellipse', 'frame', 'table'].includes(String(obj.type)));
 
     if (!movable.length) return { ok: false, error: 'No valid objects to arrange' };
 
@@ -413,6 +471,11 @@ export class BoardToolRunner {
       return { ok: true };
     }
 
+    if (obj.type === 'table') {
+      this._setObject({ ...obj, title: args.newText });
+      return { ok: true };
+    }
+
     return { ok: false, error: 'Object type does not support text updates' };
   }
 
@@ -463,7 +526,7 @@ export class BoardToolRunner {
         color: typeof obj.color === 'string' ? obj.color : undefined,
         text: obj.type === 'sticky' ? clampText(obj.text || '', 160) : undefined,
         content: obj.type === 'text' ? clampText(obj.content || '', 160) : undefined,
-        title: obj.type === 'frame' ? clampText(obj.title || '', 80) : undefined,
+        title: obj.type === 'frame' || obj.type === 'table' ? clampText(obj.title || '', 80) : undefined,
         fromId: obj.type === 'connector' ? obj.fromId : undefined,
         toId: obj.type === 'connector' ? obj.toId : undefined,
         fromPoint: obj.type === 'connector' ? obj.fromPoint : undefined,

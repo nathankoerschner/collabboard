@@ -8,6 +8,7 @@ export const AI_TOOL_NAMES = [
   'createFrame',
   'createConnector',
   'createText',
+  'createTable',
   'moveObject',
   'arrangeObjectsInGrid',
   'resizeObject',
@@ -18,7 +19,7 @@ export const AI_TOOL_NAMES = [
   'getBoardState',
 ] as const;
 
-export const OBJECT_TYPES = ['sticky', 'rectangle', 'ellipse', 'text', 'connector', 'frame'] as const;
+export const OBJECT_TYPES = ['sticky', 'rectangle', 'ellipse', 'text', 'connector', 'frame', 'table'] as const;
 export const SHAPE_TYPES = ['rectangle', 'ellipse'] as const;
 export const CONNECTOR_STYLES = ['line', 'arrow'] as const;
 export const TEXT_SIZES = ['small', 'medium', 'large'] as const;
@@ -108,6 +109,27 @@ const toolPostProcess: Record<string, (a: Record<string, unknown>) => Record<str
       fromT: typeof a.fromT === 'number' ? Math.max(0, Math.min(1, a.fromT)) : null,
       toT: typeof a.toT === 'number' ? Math.max(0, Math.min(1, a.toT)) : null,
       style: (CONNECTOR_STYLES as readonly string[]).includes(a.style as string) ? a.style : 'arrow',
+    };
+  },
+  createTable: (a) => {
+    const headers = Array.isArray(a.headers)
+      ? a.headers.filter((h): h is string => typeof h === 'string').slice(0, 20).map((h) => h.slice(0, 200))
+      : [];
+    const data = Array.isArray(a.data)
+      ? a.data.slice(0, 100).map((row: unknown) =>
+          Array.isArray(row) ? row.slice(0, 20).map((c: unknown) => clampText(c, 500, '')) : []
+        )
+      : [];
+    const numCols = headers.length || clampNumber(a.numColumns, 1, 20, 3);
+    const numRows = data.length || clampNumber(a.numRows, 1, 100, 3);
+    return {
+      title: clampText(a.title ?? 'Table', 200, 'Table'),
+      headers,
+      data,
+      numColumns: numCols,
+      numRows: numRows,
+      x: coordOrNull(a.x), y: coordOrNull(a.y),
+      color: typeof a.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(a.color) ? a.color : '#e2e8f0',
     };
   },
   createText: (a) => ({
@@ -221,6 +243,19 @@ export const langChainSchemas: Record<string, { description: string; schema: z.Z
       bold: z.boolean().optional().describe('Bold'),
       italic: z.boolean().optional().describe('Italic'),
       color: paletteEnum.optional().describe('Color'),
+    }),
+  },
+  createTable: {
+    description: 'Create a table with rows and columns. Provide headers for column names and data as a 2D array for cell content. Default is 3 columns x 3 rows. Default column width is 120px, row height is 32px.',
+    schema: z.object({
+      title: z.string().optional().describe('Table title'),
+      headers: z.array(z.string()).optional().describe('Column header names (populate first row)'),
+      data: z.array(z.array(z.string())).optional().describe('2D array of cell data, each inner array is a row of values'),
+      numColumns: z.number().optional().describe('Number of columns (ignored if headers provided)'),
+      numRows: z.number().optional().describe('Number of rows (ignored if data provided)'),
+      x: z.number().nullish().describe('X coordinate'),
+      y: z.number().nullish().describe('Y coordinate'),
+      color: z.string().optional().describe('Table color as hex string (default #e2e8f0)'),
     }),
   },
   moveObject: {
