@@ -80,9 +80,9 @@ Here's the breakdown:
 
 | Metric         | Value     |
 | -------------- | --------- |
-| Total Spend    | $3.62     |
-| Total Tokens   | 2,373,052 |
-| Total Requests | 1,333     |
+| Total Spend    | $5.00     |
+| Total Tokens   | 7,479,874 |
+| Total Requests | 2,093     |
 
 ### Production Cost Projections
 
