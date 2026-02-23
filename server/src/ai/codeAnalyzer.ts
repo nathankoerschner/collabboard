@@ -115,7 +115,7 @@ interface RetrievalState {
   pendingOperations: ExplorationOperation[];
 }
 
-const DEFAULT_MAX_ROUNDS = Number(process.env.GITHUB_ANALYSIS_MAX_ROUNDS) || 5;
+const DEFAULT_MAX_ROUNDS = Number(process.env.GITHUB_ANALYSIS_MAX_ROUNDS) || 15;
 const DEFAULT_MAX_FILES = Number(process.env.GITHUB_ANALYSIS_MAX_FILES) || 25;
 const DEFAULT_MAX_BYTES = Number(process.env.GITHUB_ANALYSIS_MAX_BYTES) || 520 * 1024;
 const DEFAULT_MAX_CONTEXT_TOKENS = Number(process.env.GITHUB_ANALYSIS_MAX_CONTEXT_TOKENS) || 14_000;
@@ -272,7 +272,7 @@ function validateRepoExplorationPlan(raw: RepoExplorationPlan): RepoExplorationP
   if (!Array.isArray(raw.candidates) || raw.candidates.length === 0) return null;
   if (!Array.isArray(raw.operations) || raw.operations.length === 0) return null;
 
-  const maxRounds = Math.max(1, Math.min(6, Number(raw.maxRounds) || DEFAULT_MAX_ROUNDS));
+  const maxRounds = Math.max(1, Math.min(15, Number(raw.maxRounds) || DEFAULT_MAX_ROUNDS));
   const maxFiles = Math.max(4, Math.min(40, Number(raw.maxFiles) || DEFAULT_MAX_FILES));
   const maxTokens = Math.max(2000, Math.min(20_000, Number(raw.maxTokens) || DEFAULT_MAX_CONTEXT_TOKENS));
   const maxBytes = Math.max(40_000, Math.min(1024 * 1024, Number(raw.maxBytes) || DEFAULT_MAX_BYTES));
@@ -543,16 +543,13 @@ export function buildRepoContextFromScannedContents(input: {
 
 export const BOARD_POSITIONING_RULES = [
   'You MUST use provided tools for all board changes.',
-  'Never invent IDs. Use IDs returned from tool results.',
-  'Prefer getBoardState when object lookup is needed.',
-  'Respect viewportCenter when placing new content; omit x/y to use deterministic placement near viewport center.',
   'Interpret user-specified coordinates (e.g. "position 100, 200") as viewport pixel coordinates from the caller\'s visible top-left unless the user explicitly says absolute/world coordinates.',
   'Keep commands concise.',
   'If selectedObjectIds is provided in the user payload and the request references "selected", operate on those IDs only.',
   'For structured templates (SWOT/retro/kanban/matrix), create one outer frame plus labeled inner section frames and avoid seed content unless asked.',
   'When creating frames, follow the deterministic sizing/spacing rules from the tool descriptions. Frames must be sized large enough to fully contain all their child items with padding — no child should extend beyond the frame boundary.',
-  'When you need to display text, always use sticky notes (createStickyNote) instead of standalone text objects. Stickies are the primary text vehicle on the board.',
   'NEVER overlap elements. Leave clear gaps between all objects. It is perfectly fine to place elements outside the current viewport to avoid overlapping — the user can pan to see them.',
+  'NEVER use connectors.'
 ];
 
 export function buildRepoSystemPrompt(ctx: RepoContextForDiagram | LegacyRepoContext): string {

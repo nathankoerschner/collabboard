@@ -11,7 +11,7 @@ import { BOARD_POSITIONING_RULES, buildRepoSystemPrompt, runGitHubExplorationPip
 
 const FAST_MODEL = process.env.OPENAI_FAST_MODEL || 'gpt-4o-mini';
 const POWER_MODEL = process.env.OPENAI_MODEL || 'gpt-5.2';
-const MAX_TOOL_ROUNDS = 8;
+const MAX_TOOL_ROUNDS = 15;
 
 function buildSystemPrompt(): string {
   return [
