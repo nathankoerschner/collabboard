@@ -27,7 +27,7 @@ Be very in-depth and continue interviewing me continually until it’s complete,
 I found queries along the lines of the following to be very helpful for generating tests:
 
 ```
-I'm noticing <bug>. Create a failing, non-deterministic test that demonstrates <bug description>. Make sure that it's a failing test, and be sure not to hard-code it's outcome in any way.
+I'm noticing <bug>. Create a failing, non-deterministic test that demonstrates <bug description>. Make sure that it's a failing test, and be sure not to hard-code its outcome in any way.
 ```
 
 This is a query that I often use now for handing off work to new model instances or between Claude and Codex:
@@ -48,9 +48,9 @@ AI really excelled in creating new features. It struggled with catching edge cas
 
 #### Spec driven Development
 
-The key thing that I found to be very helpful throughout this process was "spec driven devleopment."
+The key thing that I found to be very helpful throughout this process was "spec driven development."
 My main workflow around this involved first giving a high-level overview of the spec in a markdown document, then using the `/interview` skill I have in Claude Code (uses the same interview prompt shared above) in order to have Claude gather details from me about the spec.
-After doing this, I would clear context and have Claude make a plan to impiment the document.
+After doing this, I would clear context and have Claude make a plan to implement the document.
 I found this especially helpful in creating the MVP--basically by following this process, I was able to get all of the initial features working for the MVP in a single prompt (after plenty of presearch and time spent in the interview with Claude).
 
 #### Test driven development
