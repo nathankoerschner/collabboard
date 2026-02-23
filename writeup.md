@@ -86,9 +86,14 @@ Here's the breakdown:
 
 ### Production Cost Projections
 
-Assuming users interact with the app twice a business day and use the AI feature an average of six times a visit, that's roughly 12x5x4 = 240 interactions per user per month.
-At an upper bound of $0.0012 per query (roughly the cost to run a query that generates a SWOT analysis, one of the more complicated things), that gives us the following costs:
+There are two AI cost drivers:
+
+1. **Board AI queries**: Assuming users interact with the app twice a business day and use the AI feature an average of six times a visit, that's roughly 12x5x4 = 240 interactions per user per month. At an upper bound of $0.0012 per query (roughly the cost to run a query that generates a SWOT analysis, one of the more complicated things), that's **$0.288/user/month**.
+
+2. **GitHub integration queries**: These are heavier (~9,000 tokens, ~$0.007 per query). Assuming a user triggers this roughly once per business day, that's 20 queries/month at $0.007 = **$0.14/user/month**.
+
+**Total per user: ~$0.43/month**
 
 | 100 Users    | 1,000 Users | 10,000 Users | 100,000 Users |
 | ------------ | ----------- | ------------ | ------------- |
-| $28.80/month | $288/month  | $2,880/month | $28,800/month |
+| $42.80/month | $428/month  | $4,280/month | $42,800/month |
